@@ -1,96 +1,10 @@
 #!/bin/bash
 # ============================
 # vscreen - Virtual Display Manager
-# Version: 2.0.0
+# Version: 2.1.0
 # ============================
 
-# TODO(logging): Implement journal logging for --debug output
-# Currently --debug only outputs to stderr. Should also log to persistent file.
-# 
-# Implementation:
-# - Create logs/journal/vscreen/ directory automatically
-# - Append debug output to logs/journal/vscreen/vscreen.log
-# - Format: [YYYY-MM-DDTHH:MM:SS] [debug] message
-# - Implement log rotation when file exceeds 10MB
-# - Keep last 5 rotated logs
-#
-# labels: logging, debugging, observability
-
-# TODO(state-management): Add snapshot save/load for display configurations
-# Users should be able to save and restore virtual display layouts.
-#
-# Commands:
-# - vscreen --save <name>: Save current layout to ~/.config/vscreen/snapshots/<name>.conf
-# - vscreen --load <name>: Restore saved layout
-# - vscreen --list-snapshots: Show available configurations
-# - vscreen --delete-snapshot <name>: Remove snapshot
-#
-# Snapshot format (TOML):
-# [VIRTUAL1]
-# resolution=1920x1080
-# orientation=normal
-# position=1920x0
-# active=true
-#
-# Benefits:
-# - Quick layout switching (work/presentation/gaming)
-# - Recover from broken display states
-# - Share configs between machines
-#
-# labels: feature, configuration, user-experience
-
 set -o pipefail
-
-# TODO(logging): Implement --debug logging to journal file
-# Currently --debug only prints to stderr. Should also save to persistent log.
-#
-# Requirements:
-# - Create logs/journal/vscreen/ directory if needed
-# - Append debug output to logs/journal/vscreen/vscreen.log
-# - Each line should include ISO 8601 timestamp
-# - Format: [2025-12-23T14:30:15-03:00] [debug] message
-# - Rotate log file when it exceeds 10MB
-# - Keep last 5 rotated logs (vscreen.log.1, .2, etc)
-#
-# Implementation:
-# - Add log_to_journal() function
-# - Call it from log_debug() when DEBUG=true
-# - Use 'date --iso-8601=seconds' for timestamp
-#
-# assignees: maintainer
-# labels: logging, debugging, observability
-# milestone: vscreen-v2.1
-
-# TODO(state-management): Add snapshot save/load functionality
-# Allow users to save current virtual display configuration and restore it later.
-#
-# Planned commands:
-# - vscreen --save <name>: Save current state to ~/.config/vscreen/snapshots/<name>.conf
-# - vscreen --load <name>: Restore saved state
-# - vscreen --list-snapshots: Show available snapshots
-# - vscreen --delete-snapshot <name>: Remove saved snapshot
-#
-# Snapshot format (TOML or simple key=value):
-# [VIRTUAL1]
-# resolution=1920x1080
-# orientation=normal
-# position=1920x0
-# active=true
-#
-# [VIRTUAL2]
-# resolution=1600x900
-# orientation=right
-# position=3840x0
-# active=true
-#
-# Benefits:
-# - Quick switching between work/presentation/gaming layouts
-# - Recover from broken display states
-# - Share configurations between machines
-#
-# assignees: maintainer
-# labels: feature, configuration, user-experience
-# milestone: vscreen-v2.2
 
 # ============================
 # Configuration
@@ -100,18 +14,16 @@ DEBUG=false
 AUTO_POS=true
 ORIENTATION="normal"
 
-# Manual overrides
 MANUAL_SIZE=false
 MANUAL_W=""
 MANUAL_H=""
 MANUAL_POS=""
 
-VERSION="2.0.0"
+VERSION="2.1.0"
 
 # ============================
 # Available Resolutions
 # ============================
-# ID | NAME | WIDTH | HEIGHT | ASPECT | DESCRIPTION
 RESOLUTIONS=(
   "1 FHD   1920 1080 16:9  Desktop"
   "2 HD+   1600 900  16:9  Tablet-large-UI"
@@ -148,40 +60,12 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 # ============================
-# Dependency Check
-# ============================
-check_dependencies() {
-  local missing=()
-  
-  command -v xrandr &> /dev/null || missing+=("xrandr")
-  command -v cvt &> /dev/null || missing+=("cvt")
-  command -v awk &> /dev/null || missing+=("awk")
-  
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    echo -e "${RED}Error: Missing required dependencies: ${missing[*]}${NC}" >&2
-    echo "Install with: sudo apt install x11-xserver-utils gawk" >&2
-    exit 1
-  fi
-}
-
-# ============================
 # Logging Helpers
 # ============================
-log_debug() {
-  $DEBUG && echo -e "${BLUE}[debug]${NC} $*" >&2
-}
-
-log_info() {
-  echo -e "${GREEN}[info]${NC} $*" >&2
-}
-
-log_warn() {
-  echo -e "${YELLOW}[warn]${NC} $*" >&2
-}
-
-log_error() {
-  echo -e "${RED}[error]${NC} $*" >&2
-}
+log_debug() { $DEBUG && echo -e "${BLUE}[debug]${NC} $*" >&2; }
+log_info()  { echo -e "${GREEN}[info]${NC} $*" >&2; }
+log_warn()  { echo -e "${YELLOW}[warn]${NC} $*" >&2; }
+log_error() { echo -e "${RED}[error]${NC} $*" >&2; }
 
 # ============================
 # Command Execution
@@ -190,19 +74,32 @@ run() {
   if $DRY_RUN; then
     echo -e "${YELLOW}[dry-run]${NC} $*"
     return 0
-  else
-    log_debug "Executing: $*"
-    eval "$@"
-    local ret=$?
-    if [[ $ret -ne 0 ]]; then
-      log_error "Command failed (exit code $ret): $*"
-    fi
-    return $ret
+  fi
+  log_debug "Executing: $*"
+  eval "$@"
+  local ret=$?
+  [[ $ret -ne 0 ]] && log_error "Command failed (exit code $ret): $*"
+  return $ret
+}
+
+# ============================
+# Dependency Check
+# ============================
+check_dependencies() {
+  local missing=()
+  command -v xrandr &>/dev/null || missing+=("xrandr")
+  command -v cvt &>/dev/null || missing+=("cvt")
+  command -v awk &>/dev/null || missing+=("awk")
+  
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    log_error "Missing required dependencies: ${missing[*]}"
+    echo "Install with: sudo apt install x11-xserver-utils gawk" >&2
+    exit 1
   fi
 }
 
 # ============================
-# Help
+# Help & Version
 # ============================
 show_help() {
   cat << 'EOF'
@@ -212,10 +109,10 @@ USAGE:
   vscreen [OPTIONS] [ACTION]
 
 ACTIONS:
-  --output <N>              Activate/modify VIRTUAL<N> output (requires -r or --size)
+  --output <N>              Activate VIRTUAL<N> output (requires -r or --size)
   -c, --change <N>          Change existing VIRTUAL<N> configuration
-  --off <N>                 Disable VIRTUAL<N>
-  --off-all                 Disable all virtual displays
+  --off <N>                 Disable VIRTUAL<N> (keeps custom modes)
+  --off-all                 Disable all virtual displays (keeps custom modes)
   --purge <N>               Disable VIRTUAL<N> and remove its custom modes
   --purge-all               Disable all virtual displays and remove all custom modes
   --list [all|active|free]  List virtual outputs (default: all)
@@ -233,7 +130,7 @@ ORIENTATION:
        PL, left               Portrait Left (90° counter-clockwise)
        LF, inverted           Landscape Flipped (180°)
 
-POSITIONING (manual overrides):
+POSITIONING:
   --right-of <output>       Place display to the right of <output>
   --left-of  <output>       Place display to the left of <output>
   --above    <output>       Place display above <output>
@@ -253,32 +150,25 @@ EOF
     printf "  %s: %-6s (%sx%-4s, %-5s) - %s\n" "$ID" "$NAME" "$W" "$H" "$A" "${DESC//-/ }"
   done
   
-  echo
-  echo "EXAMPLES:"
-  echo "  # Activate new virtual display with FHD resolution"
-  echo "  vscreen --output 1 -r FHD"
-  echo
-  echo "  # Activate with custom size and positioning"
-  echo "  vscreen --output 2 --size 1600x900 --right-of eDP1"
-  echo
-  echo "  # Change orientation of existing display"
-  echo "  vscreen --change 1 -o right"
-  echo
-  echo "  # List all virtual outputs"
-  echo "  vscreen --list"
-  echo
+  cat << 'EOF'
+
+EXAMPLES:
+  vscreen --output 1 -r FHD
+  vscreen --output 2 --size 1600x900 --right-of eDP1
+  vscreen --change 1 -o right
+  vscreen --purge 1
+  vscreen --purge-all
+  vscreen --list
+EOF
 }
 
-show_version() {
-  echo "vscreen version $VERSION"
-}
+show_version() { echo "vscreen version $VERSION"; }
 
 # ============================
 # Resolution Handling
 # ============================
 get_resolution() {
   local key="$1"
-  
   for r in "${RESOLUTIONS[@]}"; do
     IFS=' ' read -r ID NAME W H A DESC <<< "$r"
     if [[ "$key" == "$ID" || "$key" == "$NAME" ]]; then
@@ -286,54 +176,55 @@ get_resolution() {
       return 0
     fi
   done
-  
   log_error "Invalid resolution: $key"
   return 1
 }
 
 # ============================
-# Output Discovery (Dynamic)
+# Output Discovery
 # ============================
 list_virtual_outputs() {
-  xrandr 2>/dev/null | awk '/^VIRTUAL[0-9]+/ {print $1}' || {
+  xrandr 2>/dev/null | awk '/^VIRTUAL[0-9]+/{print $1}' | sort -V || {
     log_error "Failed to list virtual outputs"
     return 1
   }
 }
 
 list_active_virtuals() {
-  xrandr 2>/dev/null | awk '/^VIRTUAL[0-9]+ connected/ {print $1}' || {
+  xrandr 2>/dev/null | awk '/^VIRTUAL[0-9]+ connected [0-9]+/{print $1}' | sort -V || {
     log_error "Failed to list active virtuals"
     return 1
   }
 }
 
 list_free_virtuals() {
-  comm -23 <(list_virtual_outputs | sort) <(list_active_virtuals | sort)
+  local active
+  active=$(list_active_virtuals)
+  
+  if [[ -z "$active" ]]; then
+    list_virtual_outputs
+  else
+    list_virtual_outputs | grep -vFxf <(echo "$active")
+  fi
 }
 
 pick_virtual_output() {
   local output
   output=$(list_free_virtuals | head -n 1)
-  
   if [[ -z "$output" ]]; then
     log_error "No free VIRTUAL outputs available"
     return 1
   fi
-  
   echo "$output"
-  return 0
 }
 
 validate_virtual_output() {
   local num="$1"
   local output="VIRTUAL${num}"
-  
   if ! list_virtual_outputs | grep -q "^${output}$"; then
     log_error "Output $output does not exist"
     return 1
   fi
-  
   return 0
 }
 
@@ -342,51 +233,43 @@ is_output_active() {
   xrandr 2>/dev/null | grep -qE "^${output} connected [0-9]+"
 }
 
+is_output_connected() {
+  local output="$1"
+  xrandr 2>/dev/null | grep -qE "^${output} connected"
+}
+
 # ============================
 # Mode Management
 # ============================
 mode_exists() {
   local name="$1"
-  xrandr 2>/dev/null | grep -q "^\s*${name}\s" || return 1
+  xrandr 2>/dev/null | grep -q "^\s*${name}\s"
 }
 
 create_mode_if_needed() {
   local w="$1" h="$2"
-  local full params name
-  
   log_debug "Creating mode for ${w}x${h}"
   
+  local full params name
   full=$(cvt "$w" "$h" 60 2>&1) || {
     log_error "Failed to calculate modeline with cvt"
     return 1
   }
   
   params=$(echo "$full" | sed -n 's/.*Modeline //p')
-  
-  if [[ -z "$params" ]]; then
-    log_error "Failed to parse modeline from cvt output"
-    return 1
-  fi
+  [[ -z "$params" ]] && { log_error "Failed to parse modeline"; return 1; }
   
   name=$(echo "$params" | awk '{print $1}' | tr -d '"')
-  
-  if [[ -z "$name" ]]; then
-    log_error "Failed to extract mode name"
-    return 1
-  fi
+  [[ -z "$name" ]] && { log_error "Failed to extract mode name"; return 1; }
   
   if ! mode_exists "$name"; then
     log_debug "Mode $name does not exist, creating..."
-    run xrandr --newmode $params || {
-      log_error "Failed to create mode $name"
-      return 1
-    }
+    run xrandr --newmode $params || { log_error "Failed to create mode $name"; return 1; }
   else
     log_debug "Mode $name already exists"
   fi
   
   echo "$name"
-  return 0
 }
 
 # ============================
@@ -394,18 +277,68 @@ create_mode_if_needed() {
 # ============================
 purge_output() {
   local output="$1"
+
+  log_info "Purging $output"
+
+  # Capture output block from xrandr (output line + its modes)
+  local output_block
+  output_block=$(xrandr 2>/dev/null | awk '/^'"${output}"' /{found=1} found && /^[A-Z]/ && !/^'"${output}"' /{exit} found{print}')
   
-  # First, turn off the output
-  xrandr --output "$output" --off 2>/dev/null
+  if [[ -z "$output_block" ]]; then
+    log_warn "Could not find $output in xrandr"
+    return 1
+  fi
   
-  # Then remove all custom modes from this output
+  log_debug "Output block captured:"
+  log_debug "$output_block"
+  
+  # Disable output first
+  log_debug "Disabling $output"
+  if ! xrandr --output "$output" --off 2>/dev/null; then
+    log_warn "Failed to disable $output (may already be off)"
+  fi
+  
+  # Extract custom modes (format: 1920x1080_60.00)
   local modes
-  modes=$(xrandr 2>/dev/null | awk "/^${output}/,/^[A-Z]/" | grep -oE '[0-9]+x[0-9]+_[0-9.]+' || true)
+  modes=$(echo "$output_block" | grep -oE '[0-9]+x[0-9]+_[0-9.]+' || true)
   
+  if [[ -z "$modes" ]]; then
+    log_info "No modes found in $output to remove"
+    return 0
+  fi
+  
+  log_debug "Modes found: $modes"
+  
+  # Remove each mode
+  local mode_count=0
+  local fail_count=0
   for mode in $modes; do
     log_debug "Removing mode $mode from $output"
-    xrandr --delmode "$output" "$mode" 2>/dev/null
+    if xrandr --delmode "$output" "$mode" 2>/dev/null; then
+      ((mode_count++))
+      # Try to remove mode globally (only works if no other output uses it)
+      if xrandr --rmmode "$mode" 2>/dev/null; then
+        log_info "Mode $mode was removed globally"
+      else
+        log_warn "Mode $mode cannot be removed globally"
+      fi
+    else
+      ((fail_count++))
+      log_debug "Failed to remove $mode (may not be attached)"
+    fi
   done
+  
+  # Verify purge worked
+  local remaining
+  remaining=$(xrandr 2>/dev/null | awk '/^'"${output}"' /{found=1} found{print} found && /^[A-Z]/ && !/^'"${output}"' /{exit}' | grep -oE '[0-9]+x[0-9]+_[0-9.]+' || true)
+  
+  if [[ -n "$remaining" ]]; then
+    log_warn "Some modes still attached to $output: $remaining"
+    return 1
+  fi
+  
+  log_info "Purge complete for $output ($mode_count modes removed)"
+  return 0
 }
 
 purge_all_outputs() {
@@ -418,56 +351,44 @@ purge_all_outputs() {
   fi
   
   for v in $virtuals; do
-    log_info "Purging $v"
+    log_info "Purging $output"
     purge_output "$v"
   done
   
   log_info "All virtual outputs purged"
 }
+
 # ============================
 # Smart Positioning
 # ============================
 get_smart_position() {
   local target="$1"
-  local active ext int
-  
+  local active
   active=$(xrandr --listmonitors 2>/dev/null | awk 'NR>1 {print $NF}' | grep -v "^${target}$")
   
-  if [[ -z "$active" ]]; then
-    log_debug "No other active monitors, no positioning needed"
-    return 0
-  fi
+  [[ -z "$active" ]] && return 0
   
   # If target is VIRTUAL and there are other VIRTUALs, position right of the last one
   if [[ "$target" =~ VIRTUAL ]]; then
     local prev
     prev=$(echo "$active" | grep VIRTUAL | sort | tail -n 1)
-    if [[ -n "$prev" ]]; then
-      echo "--right-of $prev"
-      return 0
-    fi
+    [[ -n "$prev" ]] && { echo "--right-of $prev"; return 0; }
   fi
   
   # Try external monitor first
+  local ext
   ext=$(echo "$active" | grep -E '^(HDMI|DP|VGA)' | head -n1)
-  if [[ -n "$ext" ]]; then
-    echo "--right-of $ext"
-    return 0
-  fi
+  [[ -n "$ext" ]] && { echo "--right-of $ext"; return 0; }
   
   # Fall back to internal
+  local int
   int=$(echo "$active" | grep -E '^(eDP|LVDS)' | head -n1)
-  if [[ -n "$int" ]]; then
-    echo "--right-of $int"
-    return 0
-  fi
+  [[ -n "$int" ]] && { echo "--right-of $int"; return 0; }
   
   # Last resort: use first active
   local first
   first=$(echo "$active" | head -n1)
-  if [[ -n "$first" ]]; then
-    echo "--right-of $first"
-  fi
+  [[ -n "$first" ]] && echo "--right-of $first"
 }
 
 # ============================
@@ -475,11 +396,10 @@ get_smart_position() {
 # ============================
 enable_virtual() {
   local output="$1" w="$2" h="$3"
-  local mode pos_arg
-  
   log_debug "Enabling $output (${w}x${h}, orientation: $ORIENTATION)"
   
   # Determine positioning
+  local pos_arg=""
   if [[ -n "$MANUAL_POS" ]]; then
     pos_arg="$MANUAL_POS"
     log_debug "Using manual position: $pos_arg"
@@ -490,6 +410,7 @@ enable_virtual() {
   
   # Create and apply mode if dimensions provided
   if [[ -n "$w" && -n "$h" ]]; then
+    local mode
     mode=$(create_mode_if_needed "$w" "$h") || return 1
     
     log_debug "Adding mode $mode to $output"
@@ -498,7 +419,6 @@ enable_virtual() {
       return 1
     }
     
-    # Small delay to ensure mode is registered
     sleep 0.1
     
     log_info "Activating $output with mode $mode"
@@ -507,7 +427,6 @@ enable_virtual() {
       return 1
     }
   else
-    # Just change orientation/position of existing active output
     log_info "Updating $output configuration"
     run xrandr --output "$output" --rotate "$ORIENTATION" $pos_arg || {
       log_error "Failed to update $output"
@@ -516,38 +435,197 @@ enable_virtual() {
   fi
   
   log_info "Successfully configured $output"
-  return 0
+}
+
+# ============================
+# Action Handlers
+# ============================
+action_list() {
+  case "$LIST_MODE" in
+    all)    list_virtual_outputs ;;
+    active) list_active_virtuals ;;
+    free)   list_free_virtuals ;;
+    *)
+      log_error "Invalid list mode: $LIST_MODE"
+      echo "Valid modes: all, active, free" >&2
+      return 1
+      ;;
+  esac
+}
+
+action_off() {
+  local output="VIRTUAL${TARGET}"
+  validate_virtual_output "$TARGET" || return 1
+  
+  if ! is_output_active "$output"; then
+    log_warn "$output is not active"
+    return 0
+  fi
+  
+  log_info "Disabling $output"
+  run xrandr --output "$output" --off || return 1
+  log_info "$output disabled successfully"
+}
+
+action_off_all() {
+  local active
+  active=$(list_active_virtuals)
+  
+  if [[ -z "$active" ]]; then
+    log_info "No active virtual displays to disable"
+    return 0
+  fi
+  
+  for v in $active; do
+    log_info "Disabling $v"
+    run xrandr --output "$v" --off || log_warn "Failed to disable $v"
+  done
+  
+  log_info "All virtual displays disabled"
+}
+
+action_purge() {
+  local output="VIRTUAL${TARGET}"
+  validate_virtual_output "$TARGET" || return 1
+  
+  log_info "Purging $output"
+  purge_output "$output"
+  log_info "$output purged successfully"
+}
+
+action_purge_all() {
+  purge_all_outputs
+}
+
+action_output() {
+  local output="VIRTUAL${TARGET}"
+  validate_virtual_output "$TARGET" || return 1
+  
+  if is_output_active "$output"; then
+    log_error "$output is already active. Use --change to modify it."
+    return 1
+  fi
+  
+  if [[ -z "$W" || -z "$H" ]]; then
+    log_error "Resolution required to activate $output"
+    echo "Use -r/--resolution or --size" >&2
+    return 1
+  fi
+  
+  enable_virtual "$output" "$W" "$H"
+}
+
+action_change() {
+  local output="VIRTUAL${TARGET}"
+  validate_virtual_output "$TARGET" || return 1
+  
+  if ! is_output_active "$output"; then
+    log_error "$output is not active. Use --output to activate it first."
+    return 1
+  fi
+  
+  enable_virtual "$output" "$W" "$H"
+}
+
+action_auto() {
+  if [[ -z "$W" || -z "$H" ]]; then
+    log_error "Resolution required. Use -r/--resolution or --size"
+    return 1
+  fi
+  
+  local output
+  output=$(pick_virtual_output) || return 1
+  
+  log_info "Auto-selected $output"
+  enable_virtual "$output" "$W" "$H"
 }
 
 # ============================
 # Parameter Validation
 # ============================
+require_arg() {
+  local opt="$1" val="$2"
+  if [[ -z "$val" || "$val" == -* ]]; then
+    log_error "$opt requires an argument"
+    exit 1
+  fi
+}
+
+require_number() {
+  local opt="$1" val="$2"
+  require_arg "$opt" "$val"
+  if [[ ! "$val" =~ ^[0-9]+$ ]]; then
+    log_error "$opt requires a valid number"
+    exit 1
+  fi
+}
+
+parse_orientation() {
+  case "$1" in
+    L|normal)   ORIENTATION="normal" ;;
+    PR|right)   ORIENTATION="right" ;;
+    PL|left)    ORIENTATION="left" ;;
+    LF|inverted) ORIENTATION="inverted" ;;
+    *)
+      log_error "Invalid orientation: $1"
+      echo "Valid options: L/normal, PR/right, PL/left, LF/inverted" >&2
+      exit 1
+      ;;
+  esac
+}
+
+parse_size() {
+  local size="$1"
+  if [[ ! "$size" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+    log_error "Invalid size format. Use WxH (e.g., 1920x1080)"
+    exit 1
+  fi
+  MANUAL_SIZE=true
+  MANUAL_W="${BASH_REMATCH[1]}"
+  MANUAL_H="${BASH_REMATCH[2]}"
+}
+
+parse_position() {
+  local pos="$1"
+  if [[ ! "$pos" =~ ^[0-9]+x[0-9]+$ ]]; then
+    log_error "Invalid position format. Use XxY (e.g., 1920x0)"
+    exit 1
+  fi
+  MANUAL_POS="--pos $pos"
+  AUTO_POS=false
+}
+
 validate_parameters() {
   # Check incompatible combinations
-  if [[ "$ACTION" == "output" ]] && [[ -z "$RES_KEY" ]] && ! $MANUAL_SIZE; then
+  if [[ "$ACTION" == "output" && -z "$RES_KEY" && ! $MANUAL_SIZE ]]; then
     log_error "--output requires either -r/--resolution or --size"
     return 1
   fi
   
-  if [[ -n "$RES_KEY" ]] && $MANUAL_SIZE; then
+  if [[ -n "$RES_KEY" && $MANUAL_SIZE == true ]]; then
     log_error "Cannot use both -r/--resolution and --size"
     return 1
   fi
   
-  if [[ "$ACTION" == "change" ]] && [[ -z "$TARGET" ]]; then
+  if [[ "$ACTION" == "change" && -z "$TARGET" ]]; then
     log_error "--change requires a target number"
     return 1
   fi
   
-  if [[ "$ACTION" == "off" ]] && [[ -z "$TARGET" ]]; then
+  if [[ "$ACTION" == "off" && -z "$TARGET" ]]; then
     log_error "--off requires a target number"
+    return 1
+  fi
+  
+  if [[ "$ACTION" == "purge" && -z "$TARGET" ]]; then
+    log_error "--purge requires a target number"
     return 1
   fi
   
   # Validate positioning conflicts
   local pos_count=0
   [[ -n "$MANUAL_POS" ]] && ((pos_count++))
-  ! $AUTO_POS && ((pos_count++))
+  ! $AUTO_POS && [[ -z "$MANUAL_POS" ]] && ((pos_count++))
   
   if [[ $pos_count -gt 1 ]]; then
     log_warn "Multiple positioning options specified, manual position takes precedence"
@@ -559,173 +637,45 @@ validate_parameters() {
 # ============================
 # Argument Parsing
 # ============================
-if [[ $# -eq 0 ]]; then
-  show_help
-  exit 0
-fi
-
 ACTION=""
 TARGET=""
 RES_KEY=""
 LIST_MODE=""
 
+[[ $# -eq 0 ]] && { show_help; exit 0; }
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --version)
-      show_version
-      exit 0
-      ;;
-    --help)
-      show_help
-      exit 0
-      ;;
-    -r|--resolution)
-      if [[ -z "${2:-}" || "$2" == -* ]]; then
-        log_error "-r/--resolution requires an argument"
-        exit 1
-      fi
-      RES_KEY="$2"
-      shift 2
-      ;;
-    --size)
-      if [[ -z "${2:-}" ]]; then
-        log_error "--size requires an argument"
-        exit 1
-      fi
-      if [[ ! "$2" =~ ^([0-9]+)x([0-9]+)$ ]]; then
-        log_error "Invalid size format. Use WxH (e.g., 1920x1080)"
-        exit 1
-      fi
-      MANUAL_SIZE=true
-      MANUAL_W="${BASH_REMATCH[1]}"
-      MANUAL_H="${BASH_REMATCH[2]}"
-      shift 2
-      ;;
-    --output)
-      if [[ -z "${2:-}" || "$2" == -* ]]; then
-        log_error "--output requires a number"
-        exit 1
-      fi
-      if [[ ! "$2" =~ ^[0-9]+$ ]]; then
-        log_error "--output requires a valid number"
-        exit 1
-      fi
-      ACTION="output"
-      TARGET="$2"
-      shift 2
-      ;;
-    -c|--change)
-      if [[ -z "${2:-}" || "$2" == -* ]]; then
-        log_error "-c/--change requires a number"
-        exit 1
-      fi
-      if [[ ! "$2" =~ ^[0-9]+$ ]]; then
-        log_error "--change requires a valid number"
-        exit 1
-      fi
-      ACTION="change"
-      TARGET="$2"
-      shift 2
-      ;;
-    --off)
-      if [[ -z "${2:-}" || "$2" == -* ]]; then
-        log_error "--off requires a number"
-        exit 1
-      fi
-      if [[ ! "$2" =~ ^[0-9]+$ ]]; then
-        log_error "--off requires a valid number"
-        exit 1
-      fi
-      ACTION="off"
-      TARGET="$2"
-      shift 2
-      ;;
-    --off-all)
-      ACTION="off-all"
-      shift
-      ;;
-    --purge)
-      if [[ -z "${2:-}" || "$2" == -* ]]; then
-        log_error "--purge requires a number"
-        exit 1
-      fi
-      if [[ ! "$2" =~ ^[0-9]+$ ]]; then
-        log_error "--purge requires a valid number"
-        exit 1
-      fi
-      ACTION="purge"
-      TARGET="$2"
-      shift 2
-      ;;
-    --purge-all)
-      ACTION="purge-all"
-      shift
-      ;;
+    --version)  show_version; exit 0 ;;
+    --help) show_help; exit 0 ;;
+    --debug)  DEBUG=true; shift ;;
+    --dry-run)  DRY_RUN=true; shift ;;
+    --no-auto)  AUTO_POS=false; shift ;;
+    
+    -r|--resolution)  require_arg "$1" "${2:-}"; RES_KEY="$2"; shift 2 ;;
+    --size) require_arg "$1" "${2:-}"; parse_size "$2"; shift 2 ;;
+    -o|--orientation) require_arg "$1" "${2:-}"; parse_orientation "$2"; shift 2 ;;
+    
+    --pos)  require_arg "$1" "${2:-}"; parse_position "$2"; shift 2 ;;
+    --right-of|--left-of|--above|--below)
+      require_arg "$1" "${2:-}"; MANUAL_POS="$1 $2"; AUTO_POS=false; shift 2 ;;
+    
+    --output) require_number "$1" "${2:-}"; ACTION="output"; TARGET="$2"; shift 2 ;;
+    -c|--change)  require_number "$1" "${2:-}"; ACTION="change"; TARGET="$2"; shift 2 ;;
+    --off)  require_number "$1" "${2:-}"; ACTION="off"; TARGET="$2"; shift 2 ;;
+    --off-all)  ACTION="off-all"; shift ;;
+    --purge)  require_number "$1" "${2:-}"; ACTION="purge"; TARGET="$2"; shift 2 ;;
+    --purge-all)  ACTION="purge-all"; shift ;;
+    
     --list)
       ACTION="list"
-      if [[ -n "${2:-}" && "$2" != -* ]]; then
-        LIST_MODE="$2"
-        shift 2
-      else
-        LIST_MODE="all"
-        shift 1
-      fi
+      if [[ -n "${2:-}" && "$2" != -* ]]; then LIST_MODE="$2"; shift 2
+      else LIST_MODE="all"; shift; fi
       ;;
-    -o|--orientation)
-      if [[ -z "${2:-}" || "$2" == -* ]]; then
-        log_error "-o/--orientation requires an argument"
-        exit 1
-      fi
-      case "$2" in
-        L|normal) ORIENTATION="normal";;
-        PR|right) ORIENTATION="right";;
-        PL|left) ORIENTATION="left";;
-        LF|inverted) ORIENTATION="inverted";;
-        *)
-          log_error "Invalid orientation: $2"
-          echo "Valid options: L/normal, PR/right, PL/left, LF/inverted"
-          exit 1
-          ;;
-      esac
-      shift 2
-      ;;
-    --right-of|--left-of|--above|--below)
-      if [[ -z "${2:-}" || "$2" == -* ]]; then
-        log_error "$1 requires an output name"
-        exit 1
-      fi
-      MANUAL_POS="$1 $2"
-      AUTO_POS=false
-      shift 2
-      ;;
-    --pos)
-      if [[ -z "${2:-}" ]]; then
-        log_error "--pos requires coordinates"
-        exit 1
-      fi
-      if [[ ! "$2" =~ ^[0-9]+x[0-9]+$ ]]; then
-        log_error "Invalid position format. Use XxY (e.g., 1920x0)"
-        exit 1
-      fi
-      MANUAL_POS="--pos $2"
-      AUTO_POS=false
-      shift 2
-      ;;
-    --no-auto)
-      AUTO_POS=false
-      shift
-      ;;
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
-    --debug)
-      DEBUG=true
-      shift
-      ;;
+    
     *)
       log_error "Unknown argument: $1"
-      echo "Use --help for usage information"
+      echo "Use --help for usage information" >&2
       exit 1
       ;;
   esac
@@ -735,88 +685,10 @@ done
 # Main Execution
 # ============================
 check_dependencies
-
-# Validate parameters before proceeding
 validate_parameters || exit 1
 
-# ============================
-# Execute Actions
-# ============================
-case "$ACTION" in
-  list)
-    case "$LIST_MODE" in
-      all)
-        list_virtual_outputs || exit 1
-        ;;
-      active)
-        list_active_virtuals || exit 1
-        ;;
-      free)
-        list_free_virtuals || exit 1
-        ;;
-      *)
-        log_error "Invalid list mode: $LIST_MODE"
-        echo "Valid modes: all, active, free"
-        exit 1
-        ;;
-    esac
-    exit 0
-    ;;
-    
-  off)
-    OUTPUT="VIRTUAL${TARGET}"
-    validate_virtual_output "$TARGET" || exit 1
-    
-    if ! is_output_active "$OUTPUT"; then
-      log_warn "$OUTPUT is not active"
-      exit 0
-    fi
-    
-    log_info "Disabling $OUTPUT"
-    run xrandr --output "$OUTPUT" --off || exit 1
-    log_info "$OUTPUT disabled successfully"
-    exit 0
-    ;;
-    
-  off-all)
-    ACTIVE=$(list_active_virtuals)
-    
-    if [[ -z "$ACTIVE" ]]; then
-      log_info "No active virtual displays to disable"
-      exit 0
-    fi
-    
-    for v in $ACTIVE; do
-      log_info "Disabling $v"
-      run xrandr --output "$v" --off || log_warn "Failed to disable $v"
-    done
-    
-    log_info "All virtual displays disabled"
-    exit 0
-    ;;
-    
-  purge)
-    OUTPUT="VIRTUAL${TARGET}"
-    validate_virtual_output "$TARGET" || exit 1
-    
-    log_info "Purging $OUTPUT"
-    purge_output "$OUTPUT"
-    log_info "$OUTPUT purged successfully"
-    exit 0
-    ;;
-    
-  purge-all)
-    purge_all_outputs
-    exit 0
-    ;;
-esac
-
-# ============================
-# Resolution Processing
-# ============================
-W=""
-H=""
-
+# Process resolution
+W="" H=""
 if $MANUAL_SIZE; then
   W="$MANUAL_W"
   H="$MANUAL_H"
@@ -826,67 +698,17 @@ elif [[ -n "$RES_KEY" ]]; then
   log_debug "Using resolution $RES_KEY: ${W}x${H}"
 fi
 
-# ============================
-# Output/Change Actions
-# ============================
-if [[ "$ACTION" == "output" ]]; then
-  OUTPUT="VIRTUAL${TARGET}"
-  
-  # Validate output exists
-  validate_virtual_output "$TARGET" || exit 1
-  
-  # Check if already active
-  if is_output_active "$OUTPUT"; then
-    log_error "$OUTPUT is already active. Use --change to modify it."
-    exit 1
-  fi
-  
-  # Resolution is required for new activation
-  if [[ -z "$W" || -z "$H" ]]; then
-    log_error "Resolution required to activate $OUTPUT"
-    echo "Use -r/--resolution or --size"
-    exit 1
-  fi
-  
-  enable_virtual "$OUTPUT" "$W" "$H" || exit 1
-  exit 0
-fi
+# Execute action
+case "$ACTION" in
+  list) action_list || exit 1 ;;
+  off)  action_off || exit 1 ;;
+  off-all)  action_off_all || exit 1 ;;
+  purge)  action_purge || exit 1 ;;
+  purge-all)  action_purge_all || exit 1 ;;
+  output) action_output || exit 1 ;;
+  change) action_change || exit 1 ;;
+  "") action_auto || exit 1 ;;
+  *)  log_error "No valid action specified"; show_help; exit 1 ;;
+esac
 
-if [[ "$ACTION" == "change" ]]; then
-  OUTPUT="VIRTUAL${TARGET}"
-  
-  # Validate output exists
-  validate_virtual_output "$TARGET" || exit 1
-  
-  # Check if output is active
-  if ! is_output_active "$OUTPUT"; then
-    log_error "$OUTPUT is not active. Use --output to activate it first."
-    exit 1
-  fi
-  
-  # For change, resolution is optional
-  enable_virtual "$OUTPUT" "$W" "$H" || exit 1
-  exit 0
-fi
-
-# ============================
-# Legacy behavior (auto-pick output)
-# ============================
-if [[ -z "$ACTION" ]]; then
-  # This path requires resolution
-  if [[ -z "$W" || -z "$H" ]]; then
-    log_error "Resolution required. Use -r/--resolution or --size"
-    exit 1
-  fi
-  
-  OUTPUT=$(pick_virtual_output) || exit 1
-  
-  log_info "Auto-selected $OUTPUT"
-  enable_virtual "$OUTPUT" "$W" "$H" || exit 1
-  exit 0
-fi
-
-# Should not reach here
-log_error "No valid action specified"
-show_help
-exit 1
+exit 0

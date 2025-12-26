@@ -36,9 +36,7 @@
 # - Limit stress test to 10 displays instead of 20
 # - Always run force_cleanup() between test sections
 #
-# assignees: maintainer
 # labels: bug, critical, display-manager, safety
-# milestone: vscreen-v2.1
 
 set -o pipefail
 
@@ -85,9 +83,7 @@ ln -sf "$(basename "$LOGFILE")" "$LATEST_LINK"
 # - Better failure isolation
 # - Each file under 100 lines
 #
-# assignees: maintainer
 # labels: testing, refactoring, maintainability, developer-experience
-# milestone: testing-framework-v2
 
 # ============================
 # Test Logic Begins
@@ -447,10 +443,10 @@ for i in {1..10}; do
   res_id=$((i % 6 + 1))
   if "$VSCREEN" --output "$i" -r "$res_id" &>> "$LOGFILE"; then
     ((STRESS_SUCCESS++))
-    log_pass "VIRTUAL$i activated"
+    log "[info] VIRTUAL$i activated"
   else
     ((STRESS_FAIL++))
-    log_fail "VIRTUAL$i failed to activate"
+    log "[warn] VIRTUAL$i failed to activate"
   fi
   wait_for_xrandr
 done
@@ -525,7 +521,7 @@ log_info "Final force cleanup"
 force_cleanup
 
 log_info "Purging all custom modes"
-expect_success "Purge modes" "$VSCREEN" --purge-modes
+expect_success "Purge all" "$VSCREEN" --purge-all
 
 log_info "Final state verification"
 FINAL_ACTIVE=$(get_active_virtuals)

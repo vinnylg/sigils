@@ -49,7 +49,7 @@ fi
 # ------------------------------------------------------------
 
 if [[ -d "$BASE_DIR/completions" ]]; then
-  for completion in "$BASE_DIR/completions/"*.bash; do
+  for completion in "$BASE_DIR/completions/bash/"*.bash; do
     [[ -f "$completion" ]] && source "$completion"
   done
 fi
