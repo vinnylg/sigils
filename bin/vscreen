@@ -4,7 +4,93 @@
 # Version: 2.0.0
 # ============================
 
+# TODO(logging): Implement journal logging for --debug output
+# Currently --debug only outputs to stderr. Should also log to persistent file.
+# 
+# Implementation:
+# - Create logs/journal/vscreen/ directory automatically
+# - Append debug output to logs/journal/vscreen/vscreen.log
+# - Format: [YYYY-MM-DDTHH:MM:SS] [debug] message
+# - Implement log rotation when file exceeds 10MB
+# - Keep last 5 rotated logs
+#
+# labels: logging, debugging, observability
+
+# TODO(state-management): Add snapshot save/load for display configurations
+# Users should be able to save and restore virtual display layouts.
+#
+# Commands:
+# - vscreen --save <name>: Save current layout to ~/.config/vscreen/snapshots/<name>.conf
+# - vscreen --load <name>: Restore saved layout
+# - vscreen --list-snapshots: Show available configurations
+# - vscreen --delete-snapshot <name>: Remove snapshot
+#
+# Snapshot format (TOML):
+# [VIRTUAL1]
+# resolution=1920x1080
+# orientation=normal
+# position=1920x0
+# active=true
+#
+# Benefits:
+# - Quick layout switching (work/presentation/gaming)
+# - Recover from broken display states
+# - Share configs between machines
+#
+# labels: feature, configuration, user-experience
+
 set -o pipefail
+
+# TODO(logging): Implement --debug logging to journal file
+# Currently --debug only prints to stderr. Should also save to persistent log.
+#
+# Requirements:
+# - Create logs/journal/vscreen/ directory if needed
+# - Append debug output to logs/journal/vscreen/vscreen.log
+# - Each line should include ISO 8601 timestamp
+# - Format: [2025-12-23T14:30:15-03:00] [debug] message
+# - Rotate log file when it exceeds 10MB
+# - Keep last 5 rotated logs (vscreen.log.1, .2, etc)
+#
+# Implementation:
+# - Add log_to_journal() function
+# - Call it from log_debug() when DEBUG=true
+# - Use 'date --iso-8601=seconds' for timestamp
+#
+# assignees: maintainer
+# labels: logging, debugging, observability
+# milestone: vscreen-v2.1
+
+# TODO(state-management): Add snapshot save/load functionality
+# Allow users to save current virtual display configuration and restore it later.
+#
+# Planned commands:
+# - vscreen --save <name>: Save current state to ~/.config/vscreen/snapshots/<name>.conf
+# - vscreen --load <name>: Restore saved state
+# - vscreen --list-snapshots: Show available snapshots
+# - vscreen --delete-snapshot <name>: Remove saved snapshot
+#
+# Snapshot format (TOML or simple key=value):
+# [VIRTUAL1]
+# resolution=1920x1080
+# orientation=normal
+# position=1920x0
+# active=true
+#
+# [VIRTUAL2]
+# resolution=1600x900
+# orientation=right
+# position=3840x0
+# active=true
+#
+# Benefits:
+# - Quick switching between work/presentation/gaming layouts
+# - Recover from broken display states
+# - Share configurations between machines
+#
+# assignees: maintainer
+# labels: feature, configuration, user-experience
+# milestone: vscreen-v2.2
 
 # ============================
 # Configuration
@@ -304,6 +390,32 @@ create_mode_if_needed() {
 
 purge_modes() {
   local virtuals modes_removed=0
+  
+  # TODO(cleanup-improvement): Make --purge-modes remove inactive virtual outputs
+  # Currently only removes mode associations but leaves disconnected outputs.
+  # After purge, should leave only VIRTUAL1 available (reset to clean state).
+  #
+  # This would fix the "ghost displays" problem where tests leave many
+  # VIRTUALs in xrandr even after --off-all.
+  #
+  # Approach 1: After removing modes, also do:
+  #   for v in $(list_virtual_outputs); do
+  #     if ! is_output_active "$v"; then
+  #       # xrandr doesn't have --remove-output, so we can't actually delete them
+  #       # Virtual outputs persist until X restart
+  #     fi
+  #   done
+  #
+  # Approach 2: Document that user must restart X session to fully reset
+  #
+  # Approach 3: Before any vscreen operation, save xrandr state to allow restore
+  #
+  # Note: Intel driver creates virtual outputs dynamically and doesn't provide
+  # a way to remove them via xrandr. They persist until X server restarts.
+  #
+  # assignees: maintainer
+  # labels: cleanup, user-experience, limitation
+  # milestone: vscreen-v2.1
   
   virtuals=$(list_virtual_outputs)
   
