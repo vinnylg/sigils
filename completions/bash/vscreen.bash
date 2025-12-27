@@ -21,7 +21,7 @@ _vscreen() {
     -r --resolution --size
     --output -c --change 
     --off --off-all
-    --purge-modes
+    --purge --purge-all
     --list
     -o --orientation
     --right-of --left-of --above --below --pos
@@ -99,6 +99,16 @@ _vscreen() {
       
     --off)
       # Suggest active virtual output numbers
+      if [[ -n "$active_virtuals" ]]; then
+        COMPREPLY=( $(compgen -W "$active_virtuals" -- "$cur") )
+      else
+        COMPREPLY=()
+      fi
+      return 0
+      ;;
+
+      --purge)
+      # Suggest active virtual output numbers (same as --off)
       if [[ -n "$active_virtuals" ]]; then
         COMPREPLY=( $(compgen -W "$active_virtuals" -- "$cur") )
       else
