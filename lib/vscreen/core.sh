@@ -44,3 +44,16 @@
 # - Follows project architecture guidelines
 #
 # labels: refactoring, architecture, technical-debt, testing
+
+
+
+# TODO(improvements): Make available resolutions dynamic
+# Instead of having a fixed table written directly in the code, making it separate allows for changes
+# The creation of two distinct files is necessary, one for the created resolution history, 
+# Another for saved resolutions. Or just a file, define it better.
+
+# TODO(feature): Add --dpi to vscreen
+#
+# e.g.: 
+#  vscreen --size 1200x2000 --dpi 212
+#  vscreen -o 1 --dpi 212
