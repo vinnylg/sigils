@@ -1,0 +1,411 @@
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import subprocess
+import time
+import logging
+import random
+import platform
+import re
+from datetime import datetime, timezone
+
+# --- Path Configuration ---
+SCRIPT_PATH = os.path.realpath(__file__)
+SCRIPT_DIR = os.path.dirname(SCRIPT_PATH)
+SIGILS_ROOT = os.environ.get("SIGILS_ROOT", os.path.dirname(SCRIPT_DIR))
+
+CONFIG_FILE = os.path.join(SIGILS_ROOT, "config", "netmon.json")
+DATA_DIR = os.path.join(SIGILS_ROOT, "data")
+RESULTS_DIR = os.path.join(DATA_DIR, "netmon", "results")
+LOG_FILE = os.path.join(SIGILS_ROOT, "logs", "netmon", "netmon.log")
+
+os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+
+# --- Logger ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger()
+
+class SystemInfo:
+    """Helper to gather hardware info. Returns None for unavailable fields."""
+    @staticmethod
+    def get_info(interface_name):
+        info = {
+            "os": f"{platform.system()} {platform.release()}",
+            "hostname": platform.node(),
+            "cpu": None,
+            "memory": None,
+            "interface": interface_name,
+            "local_ip": None,
+            "mac_address": None
+        }
+
+        # CPU Model (Linux)
+        try:
+            with open("/proc/cpuinfo", "r") as f:
+                for line in f:
+                    if "model name" in line:
+                        info["cpu"] = line.split(":")[1].strip()
+                        break
+        except: pass
+
+        # Total Memory (Linux)
+        try:
+            with open("/proc/meminfo", "r") as f:
+                for line in f:
+                    if "MemTotal" in line:
+                        kb = int(line.split()[1])
+                        info["memory"] = f"{kb // 1024}MB"
+                        break
+        except: pass
+
+        # IP and MAC
+        try:
+            if interface_name and interface_name != "unknown":
+                out = subprocess.check_output(["ip", "addr", "show", interface_name], text=True)
+                ip_match = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+)", out)
+                mac_match = re.search(r"link/ether\s+([0-9a-fA-F:]+)", out)
+                
+                if ip_match: info["local_ip"] = ip_match.group(1)
+                if mac_match: info["mac_address"] = mac_match.group(1)
+        except: pass
+
+        return info
+
+class NetMon:
+    def __init__(self):
+        self.config = self.load_config()
+        self.interface = self.get_interface()
+        self.sys_info = SystemInfo.get_info(self.interface)
+        self.session_results = []
+        # Stores the UUID (timestamp) of the scheduled run to link retries
+        self.schedule_uuid = None 
+
+    def load_config(self):
+        if not os.path.exists(CONFIG_FILE):
+            logger.error(f"Config file not found: {CONFIG_FILE}")
+            sys.exit(1)
+        
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+            
+            def clean_speed(val):
+                if isinstance(val, (int, float)): return float(val)
+                if isinstance(val, str): 
+                    cleaned = ''.join(c for c in val if c.isdigit() or c == '.')
+                    return float(cleaned) if cleaned else 0.0
+                return 0.0
+
+            c_down = config.get('contracted', {}).get('download_mbps', 0)
+            c_up = config.get('contracted', {}).get('upload_mbps', 0)
+            
+            config['contracted']['download_mbps'] = clean_speed(c_down)
+            config['contracted']['upload_mbps'] = clean_speed(c_up)
+            
+            return config
+        except Exception as e:
+            logger.error(f"Config Error: {e}")
+            sys.exit(1)
+
+    def get_interface(self):
+        try:
+            res = subprocess.check_output(["ip", "route", "get", "8.8.8.8"], text=True)
+            parts = res.split()
+            if "dev" in parts: return parts[parts.index("dev") + 1]
+        except: pass
+        return "unknown"
+
+    def get_server_id(self, server_type):
+        servers = self.config.get('servers', {})
+        cfg = servers.get(server_type)
+        
+        if isinstance(cfg, list):
+            valid = [s for s in cfg if isinstance(s, dict) and s.get('id')]
+            return random.choice(valid).get('id') if valid else None
+        elif isinstance(cfg, dict):
+            return cfg.get('id')
+        return None
+
+    def get_server_label(self, server_type, server_id):
+        servers = self.config.get('servers', {})
+        cfg = servers.get(server_type)
+
+        if isinstance(cfg, dict):
+            return cfg.get('label', server_type)
+        if isinstance(cfg, list):
+            for s in cfg:
+                if str(s.get('id')) == str(server_id):
+                    return s.get('label', f"{server_type}_auto")
+            return f"{server_type}_auto"
+        return server_type
+
+    def create_result(self, output, duration, server_type, test_type, reason, retry_of):
+        timestamp = datetime.now(timezone.utc).isoformat()
+        
+        # Parse JSON
+        data = {}
+        valid_json = False
+        try:
+            data = json.loads(output)
+            valid_json = True
+            if "error" in data: valid_json = False
+        except: 
+            valid_json = False
+
+        # Extract Metrics
+        dl_mbps = 0.0
+        up_mbps = 0.0
+        ping = 0.0
+        jitter = 0.0
+        pkt_loss = 0.0
+        
+        if valid_json:
+            dl_mbps = (data.get('download', {}).get('bandwidth', 0) or 0) * 8 / 1_000_000
+            up_mbps = (data.get('upload', {}).get('bandwidth', 0) or 0) * 8 / 1_000_000
+            ping = data.get('ping', {}).get('latency', 0)
+            jitter = data.get('ping', {}).get('jitter', 0)
+            pkt_loss = data.get('packetLoss', 0)
+
+        # Calculate Thresholds
+        c_down = self.config['contracted']['download_mbps']
+        c_up = self.config['contracted']['upload_mbps']
+        dl_pct = (dl_mbps * 100 / c_down) if c_down > 0 else 0
+        up_pct = (up_mbps * 100 / c_up) if c_up > 0 else 0
+
+        # Server Metadata
+        srv_id = None
+        srv_label = "fail"
+        srv_name = None
+        srv_loc = None
+        srv_country = None
+        srv_host = None
+        
+        if valid_json:
+            srv = data.get('server', {})
+            srv_id = srv.get('id')
+            srv_label = self.get_server_label(server_type, srv_id)
+            srv_name = srv.get('name')
+            srv_loc = srv.get('location')
+            srv_country = srv.get('country')
+            srv_host = srv.get('host')
+
+        # Network Metadata
+        pub_ip = None
+        isp = None
+        if valid_json:
+            net = data.get('interface', {})
+            pub_ip = net.get('externalIp')
+            isp = data.get('isp')
+
+        # Construct Ordered Dictionary
+        return {
+            "timestamp": timestamp,
+            "test_type": test_type,
+            "retry_reason": reason,
+            "retry_of": retry_of,
+            "system_info": self.sys_info,
+            "server": {
+                "type": server_type,
+                "id": srv_id,
+                "label": srv_label,
+                "name": srv_name,
+                "location": srv_loc,
+                "country": srv_country,
+                "host": srv_host
+            },
+            "network": {
+                "public_ip": pub_ip,
+                "isp": isp
+            },
+            "results": {
+                "download_mbps": round(dl_mbps, 2),
+                "upload_mbps": round(up_mbps, 2),
+                "ping_ms": ping,
+                "jitter_ms": jitter,
+                "packet_loss": pkt_loss
+            },
+            "thresholds": {
+                "download_pct": round(dl_pct, 1),
+                "upload_pct": round(up_pct, 1)
+            },
+            "meta": {
+                "duration_sec": duration
+            }
+        }
+
+    def run_speedtest(self, server_id, server_type, test_type, reason):
+        cmd = ["speedtest", "--format=json", "--accept-license", "--accept-gdpr"]
+        if server_id: cmd.append(f"--server-id={server_id}")
+        
+        logger.info(f"Running test ({test_type}): {server_type}")
+        start = time.time()
+        
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            output = res.stdout
+        except Exception as e:
+            logger.error(f"Exec Error: {e}")
+            output = ""
+
+        duration = int(time.time() - start)
+        
+        # UUID Logic
+        if test_type == "scheduled":
+            # Generate new UUID for the session if it's the first test or refresh logic
+            # Actually, per requirements, retry_of points to the Schedule UUID.
+            # We'll rely on the caller to manage the schedule_uuid state, 
+            # but since we process serially, we can assume the result's timestamp 
+            # becomes the ID if it's the *first* test of a scheduled cycle.
+            # However, simpler logic:
+            retry_of = None
+        else:
+            retry_of = self.schedule_uuid
+
+        result_obj = self.create_result(output, duration, server_type, test_type, reason, retry_of)
+        
+        # If this is the start of a scheduled cycle (and valid), capture its ID?
+        # The prompt says: "retry_of: schedule_UUID". 
+        # Since we run 3 servers per cycle, do they share a UUID? Or each has its own?
+        # Typically "retry of X" implies X is a specific failed test.
+        # But here we retry the *Cycle*. So we will use the timestamp of the 
+        # FIRST test of the Scheduled cycle as the Session UUID.
+        
+        if test_type == "scheduled" and self.schedule_uuid is None:
+            self.schedule_uuid = result_obj['timestamp']
+            
+        return result_obj
+
+    def save_data(self, data):
+        # File rotation by day
+        day_str = datetime.now().strftime("%Y-%m-%d")
+        filename = os.path.join(RESULTS_DIR, f"{day_str}.jsonl")
+        try:
+            with open(filename, 'a') as f:
+                f.write(json.dumps(data) + "\n")
+        except Exception as e:
+            logger.error(f"Save Error: {e}")
+
+    def run_cycle(self, cycle_type, cycle_reason):
+        targets = list(self.config.get('servers', {}).keys())
+        scores = []
+
+        # Reset schedule UUID if starting a fresh scheduled cycle
+        if cycle_type == "scheduled":
+            self.schedule_uuid = None 
+            # The first test's timestamp will become self.schedule_uuid inside run_speedtest
+
+        for i, target in enumerate(targets):
+            sid = self.get_server_id(target)
+            res = self.run_speedtest(sid, target, cycle_type, cycle_reason)
+            
+            self.save_data(res)
+            self.session_results.append(res)
+            
+            # Score: Average of Down/Up percentages
+            d = res['thresholds']['download_pct']
+            u = res['thresholds']['upload_pct']
+            scores.append((d + u) / 2)
+            
+            logger.info(f"Result [{target}]: D={d}% U={u}%")
+            
+            if i < len(targets) - 1:
+                logger.info("Waiting 1 minute...")
+                time.sleep(60)
+
+        if not scores: return 0.0
+        return sum(scores) / len(scores)
+
+    def determine_next_step(self, avg):
+        """Returns (minutes, exit_bool, reason_str)"""
+        intervals = self.config.get('intervals', {})
+        
+        # 1. Prefix based on Avg
+        prefix = "ok"
+        wait = 0
+        should_exit = False
+        
+        if avg <= 1.0:
+            prefix = "none"
+            wait = intervals.get('no_internet_min', 10)
+        elif avg < 20:
+            prefix = "20"
+            wait = intervals.get('retry_20_min', 1)
+        elif avg < 40:
+            prefix = "40"
+            wait = intervals.get('retry_40_min', 5)
+        elif avg < 60:
+            prefix = "60"
+            wait = intervals.get('retry_60_min', 10)
+        elif avg < 80:
+            prefix = "80"
+            wait = intervals.get('retry_80_min', 15)
+        else:
+            return 0, True, None
+
+        # 2. Suffix (download/upload/both) based on last 3 tests
+        last_3 = self.session_results[-3:]
+        d_avg = sum(x['thresholds']['download_pct'] for x in last_3) / len(last_3) if last_3 else 0
+        u_avg = sum(x['thresholds']['upload_pct'] for x in last_3) / len(last_3) if last_3 else 0
+        
+        suffix = "both"
+        if d_avg < 80 and u_avg >= 80: suffix = "download"
+        elif u_avg < 80 and d_avg >= 80: suffix = "upload"
+        
+        return wait, False, f"{suffix}_{prefix}"
+
+    def start(self):
+        logger.info("=== Starting Session ===")
+        cycle = 0
+        cur_type = "scheduled"
+        cur_reason = None
+        max_crit = self.config.get('retry', {}).get('max_retries_critical', 5)
+
+        while True:
+            cycle += 1
+            logger.info(f"--- Cycle {cycle} ({cur_type}) ---")
+            
+            avg = self.run_cycle(cur_type, cur_reason)
+            wait, exit_flag, reason = self.determine_next_step(avg)
+
+            if exit_flag:
+                logger.info("Performance Excellent. Exiting.")
+                break
+            
+            logger.info(f"Cycle Avg: {round(avg, 1)}%. Retry in {wait}m. Reason: {reason}")
+            
+            # Loop Breakers
+            if "none" in reason or "20" in reason:
+                if cycle >= max_crit:
+                    logger.warning(f"Critical retry limit ({max_crit}) reached.")
+                    break
+            elif cycle >= 10:
+                logger.warning("General retry limit (10) reached.")
+                break
+            
+            cur_type = "retry"
+            cur_reason = reason
+            time.sleep(wait * 60)
+
+        logger.info("=== Session Complete ===")
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "servers":
+        subprocess.run(["speedtest", "-L"])
+        sys.exit(0)
+    
+    # Unbuffer stdout for proper logging in systemd
+    sys.stdout.reconfigure(line_buffering=True)
+    NetMon().start()
+
+if __name__ == "__main__":
+    main()

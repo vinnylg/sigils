@@ -216,3 +216,17 @@ Even if no one ends up using these scripts, making them public is still worthwhi
 This repository is under active construction. Most scripts are still being migrated, refactored, or formalized. Interfaces may change, and parts of the layout may evolve, but the core structure and responsibilities described above are considered stable.
 
 Contributions, suggestions, and critical feedback are welcome — especially when they help make the scripts simpler, more robust, or easier to reason about.
+
+## TODOS
+
+<!-- TODO(refactor): Renaming directories to look more like a young mystic's space 
+        Change:
+            - logs to bom (book of mirror)
+            - lib to bos (book of shadow)
+            - bin to speels or invocstion or somethinhg like
+            - settings/configs to pact
+            - etc
+
+        labels: wtf
+
+-->

@@ -143,3 +143,10 @@ fi
 
 echo ""
 echo "✓ Emergency reset complete"
+
+# TODO(refactory): All this script may be in lib, and then import by vscreen
+#     usage: 
+#       vscreen --reset
+#       vscreen --reset all (restart display manager too)
+#
+#     label: perfectionism, not need, low, null priority 

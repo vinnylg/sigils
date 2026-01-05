@@ -1,0 +1,17 @@
+[Unit]
+Description=Network Monitor - Speedtest with retry logic
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment="SIGILS_ROOT=%h/.local/sigils"
+ExecStart=%h/.local/sigils/bin/netmon run
+
+TimeoutStartSec=0
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

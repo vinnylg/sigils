@@ -1,0 +1,29 @@
+{
+"contracted": {
+    "download_mbps": 800,
+    "upload_mbps": 400
+  },
+  "intervals": {
+    "no_internet": 10,
+    "retry_20": 1,
+    "retry_40": 5,
+    "retry_60": 10,
+    "retry_80": 15
+  },
+  "retry": {
+    "max_retries_critical": 5
+  },
+  "servers": {
+    "curitiba": {
+      "id": null,
+      "label": "curitiba_auto"
+    },
+    "sao_paulo": {
+      "id": null,
+      "label": "sao_paulo_auto"
+    },
+    "international": [
+      {"id": null, "label": "international_auto"}
+    ]
+  }
+}
