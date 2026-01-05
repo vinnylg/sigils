@@ -219,14 +219,20 @@ Contributions, suggestions, and critical feedback are welcome — especially whe
 
 ## TODOS
 
-<!-- TODO(refactor): Renaming directories to look more like a young mystic's space 
-        Change:
-            - logs to bom (book of mirror)
-            - lib to bos (book of shadow)
-            - bin to speels or invocstion or somethinhg like
-            - settings/configs to pact
-            - etc
-
-        labels: wtf
-
+<!-- TODO(refactor): Renaming directories to look more like a young mystic's space
+    For this happens, all scripts may be changed. Then use this env is better than hardcode directories 
+    # Sigils Directory Structure Example: ( maybe without SIGILS prefix )
+        export SIGILS_ROOT="${SIGILS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+        export SIGILS_BIN="$SIGILS_ROOT/spells"
+        export SIGILS_LIB="$SIGILS_ROOT/bos"
+        export SIGILS_LOGS="$SIGILS_ROOT/bom"
+        export SIGILS_TESTS="$SIGILS_ROOT/scrying"
+        export SIGILS_DOCS="$SIGILS_ROOT/grimoire"
+        export SIGILS_DATA="$SIGILS_ROOT/manifestation"
+        export SIGILS_INIT="$SIGILS_ROOT/invocations"
+        export SIGILS_COMPLETIONS="$SIGILS_ROOT/omens"
+        export SIGILS_CONFIG="$SIGILS_ROOT/pacts"
+        export SIGILS_SERVICES="$SIGILS_ROOT/rituals"
+    
+    labels: wtf, low
 -->
