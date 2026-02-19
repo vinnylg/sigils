@@ -1,0 +1,24 @@
+SEPARATE
+
+SIGILS:
+    GIT
+    TMP
+    README
+    MAKEFILE
+    NETMON
+        BIN
+        COMPLETATION
+        CONFIG
+        DATA
+        DOCS
+        LOGS
+        RITUALS
+        README
+        MAKEFILE
+        ...
+    VSCREEN
+    ALL
+
+
+
+    TIMER NÃO PARECE ESTAR FUNCIONANDO

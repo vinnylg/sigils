@@ -2,9 +2,9 @@
 Description=Network Monitor Timer - Run speedtest every 30 minutes
 
 [Timer]
-OnBootSec=2min
+OnBootSec=1min
 OnUnitActiveSec=30min
-AccuracySec=1min
+AccuracySec=10sec
 Persistent=true
 
 [Install]

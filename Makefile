@@ -163,6 +163,7 @@ vscreen:
 # =============================================================================
 # netmon
 # =============================================================================
+INTERVAL ?= 30min
 
 # Systemd paths based on user/root context
 ifeq ($(IS_ROOT),1)
@@ -197,8 +198,26 @@ netmon-link:
 	@echo "Setting up netmon..."
 	@chmod +x $(BIN_DIR)/netmon
 	@mkdir -p $(SYSTEMD_DIR)
-	ln -sf $(SIGILS_ROOT)/rituals/netmon.service $(SYSTEMD_DIR)/netmon.service
-	ln -sf $(SIGILS_ROOT)/rituals/netmon.timer $(SYSTEMD_DIR)/netmon.timer
+# 	ln -sf $(SIGILS_ROOT)/rituals/netmon.service $(SYSTEMD_DIR)/netmon.service
+
+	@echo "Generating systemd unit with absolute path: $(SIGILS_ROOT)"
+
+	@if [ "$(IS_ROOT)" -eq "1" ]; then \
+		sed -e 's|%h/.local/sigils|$(SIGILS_ROOT)|g' \
+			-e '/\[Service\]/a User=$(SUDO_USER)' \
+			$(SIGILS_ROOT)/rituals/netmon.service > $(SYSTEMD_DIR)/netmon.service; \
+	else \
+		sed -e 's|%h/.local/sigils|$(SIGILS_ROOT)|g' \
+			$(SIGILS_ROOT)/rituals/netmon.service > $(SYSTEMD_DIR)/netmon.service; \
+	fi
+
+# 	ln -sf $(SIGILS_ROOT)/rituals/netmon.timer $(SYSTEMD_DIR)/netmon.timer
+
+	@echo "--> Generating netmon.timer with interval: $(INTERVAL)..."
+	
+	@sed -e 's|OnUnitActiveSec=.*|OnUnitActiveSec=$(INTERVAL)|g' \
+		$(SIGILS_ROOT)/rituals/netmon.timer > $(SYSTEMD_DIR)/netmon.timer
+
 	$(SYSTEMCTL) daemon-reload
 	@echo "Systemd units linked."
 

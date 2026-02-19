@@ -11,13 +11,13 @@
     "retry_80": 15
   },
   "retry": {
-    "max_cycles": 1000
+    "max_cycles": 1
   },
   "servers": {
     "curitiba": { "id": null, "label": "curitiba_auto" },
     "sao_paulo": { "id": null, "label": "sao_paulo_auto" },
     "international": [
-      { "id": null, "label": "international_auto" }
+      {"id": null, "label": "international_auto"}
     ]
   }
 }

@@ -1,0 +1,54 @@
+.
+├── bin
+│   ├── netmon
+│   ├── vscreen
+│   └── vscreen-reset
+├── completions
+│   ├── bash
+│   │   └── vscreen.bash
+│   ├── fish
+│   └── zsh
+├── config
+│   └── netmon.json
+├── CONTRIBUTING.md
+├── data
+│   └── netmon
+│       └── results
+│           └── 2026-01-06.jsonl
+├── docs
+│   ├── netmon
+│   │   └── README.md
+│   ├── pam_usb_authentication.md
+│   └── vscreen
+│       ├── claude_steps.md
+│       ├── README.md
+│       └── test_completion.md
+├── init
+│   └── env.bash
+├── lib
+│   ├── netmon
+     '   ├── dashboard.py
+│   │   └── diaghose.sh
+│   └── vscreen
+│       └── core.sh
+├── logs
+│   ├── journal
+│   │   └── netmon
+│   ├── netmon
+│   │   └── netmon.log
+│   └── tests
+│       └── vscreen
+│           └── integration
+│               ├── 20251226162321.log
+│               └── latest.log -> 20251226162321.log
+├── Makefile
+├── README.md
+├── rituals
+│   ├── netmon.service
+│   └── netmon.timer
+├── tests
+│   ├── netmon
+│   └── vscreen
+│       ├── fixtures.md
+│       ├── integration.sh
+│       └── units.sh

@@ -5,8 +5,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-Environment="SIGILS_ROOT=%h/.local/sigils"
-ExecStart=%h/.local/sigils/bin/netmon run
+Environment="SIGILS_ROOT=/home/vlgoncalves/.local/sigils"
+ExecStart=/home/vlgoncalves/.local/sigils/bin/netmon run
 
 TimeoutStartSec=0
 

@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-netmon - Network speed monitoring with structured diagnostics.
-
-Usage:
-    netmon run      Run full test cycle
-    netmon test     Single test (first server only)
-    netmon servers  List available speedtest servers
-"""
 import os
 import sys
 import json
@@ -17,7 +9,6 @@ import random
 import platform
 import re
 from datetime import datetime, timezone
-from pathlib import Path
 
 # --- Path Configuration ---
 SCRIPT_PATH = os.path.realpath(__file__)
@@ -46,240 +37,59 @@ logger = logging.getLogger()
 
 
 class SystemInfo:
-    """Gather comprehensive system information for diagnostics."""
-
+    """Helper to gather hardware info. Returns None for unavailable fields."""
     @staticmethod
-    def _run_cmd(cmd, default=""):
+    def get_info(interface_name):
+        info = {
+            "os": f"{platform.system()} {platform.release()}",
+            "hostname": platform.node(),
+            "cpu": None,
+            "memory": None,
+            "interface": interface_name,
+            "local_ip": None
+        }
+
+        # CPU Model (Linux)
         try:
-            return subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
-        except:
-            return default
-
-    @staticmethod
-    def _read_file(path, default=""):
-        try:
-            return Path(path).read_text().strip()
-        except:
-            return default
-
-    @classmethod
-    def get_distro(cls):
-        """Get distribution name and version."""
-        try:
-            with open("/etc/os-release") as f:
-                data = {}
-                for line in f:
-                    if "=" in line:
-                        k, v = line.strip().split("=", 1)
-                        data[k] = v.strip('"')
-                name = data.get("PRETTY_NAME") or data.get("NAME", "Linux")
-                return name
-        except:
-            pass
-        
-        result = cls._run_cmd("lsb_release -d 2>/dev/null | cut -f2")
-        return result if result else "Linux"
-
-    @classmethod
-    def get_kernel(cls):
-        return platform.release()
-
-    @classmethod
-    def get_hostname(cls):
-        return platform.node()
-
-    @classmethod
-    def get_cpu_info(cls):
-        """Get CPU model, cores, and current usage."""
-        info = {"model": None, "cores": None, "usage_pct": None}
-
-        try:
-            with open("/proc/cpuinfo") as f:
+            with open("/proc/cpuinfo", "r") as f:
                 for line in f:
                     if "model name" in line:
-                        info["model"] = line.split(":")[1].strip()
+                        info["cpu"] = line.split(":")[1].strip()
                         break
         except:
             pass
 
+        # Total Memory (Linux)
         try:
-            info["cores"] = os.cpu_count()
-        except:
-            pass
-
-        try:
-            def read_cpu_times():
-                with open("/proc/stat") as f:
-                    line = f.readline()
-                    parts = line.split()[1:]
-                    return [int(x) for x in parts]
-
-            t1 = read_cpu_times()
-            time.sleep(0.1)
-            t2 = read_cpu_times()
-
-            idle1, idle2 = t1[3], t2[3]
-            total1, total2 = sum(t1), sum(t2)
-            
-            idle_delta = idle2 - idle1
-            total_delta = total2 - total1
-            
-            if total_delta > 0:
-                usage = 100.0 * (1.0 - idle_delta / total_delta)
-                info["usage_pct"] = round(usage, 1)
-        except:
-            pass
-
-        return info
-
-    @classmethod
-    def get_memory_info(cls):
-        """Get memory stats in MB."""
-        info = {"total": None, "used": None, "free": None, "usage_pct": None}
-
-        try:
-            with open("/proc/meminfo") as f:
-                data = {}
+            with open("/proc/meminfo", "r") as f:
                 for line in f:
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        key = parts[0].rstrip(":")
-                        val = int(parts[1])
-                        data[key] = val
-
-            total = data.get("MemTotal", 0)
-            free = data.get("MemFree", 0)
-            buffers = data.get("Buffers", 0)
-            cached = data.get("Cached", 0)
-            
-            available = free + buffers + cached
-            used = total - available
-
-            info["total"] = total // 1024
-            info["used"] = used // 1024
-            info["free"] = available // 1024
-            
-            if total > 0:
-                info["usage_pct"] = round(100.0 * used / total, 1)
+                    if "MemTotal" in line:
+                        kb = int(line.split()[1])
+                        info["memory"] = f"{kb // 1024}MB"
+                        break
         except:
             pass
 
-        return info
-
-    @classmethod
-    def get_interface_info(cls, interface_name):
-        """Get detailed interface information."""
-        info = {
-            "name": interface_name,
-            "type": "ethernet",
-            "vendor": None,
-            "product": None,
-            "driver": None,
-            "driver_version": None,
-            "link_speed": None,
-            "duplex": None
-        }
-
-        if not interface_name or interface_name == "unknown":
-            return info
-
-        # Determine type
-        if interface_name.startswith(("wl", "wlan", "wifi")):
-            info["type"] = "wifi"
-        elif interface_name.startswith(("eth", "enp", "eno", "ens")):
-            info["type"] = "ethernet"
-
-        # Get driver info via ethtool
-        ethtool_i = cls._run_cmd(f"ethtool -i {interface_name} 2>/dev/null")
-        for line in ethtool_i.split("\n"):
-            if line.startswith("driver:"):
-                info["driver"] = line.split(":", 1)[1].strip()
-            elif line.startswith("version:"):
-                info["driver_version"] = line.split(":", 1)[1].strip()
-
-        # Get link speed and duplex
-        ethtool = cls._run_cmd(f"ethtool {interface_name} 2>/dev/null")
-        for line in ethtool.split("\n"):
-            line = line.strip()
-            if line.startswith("Speed:"):
-                speed_str = line.split(":", 1)[1].strip()
-                match = re.search(r"(\d+)", speed_str)
-                if match:
-                    info["link_speed"] = int(match.group(1))
-            elif line.startswith("Duplex:"):
-                info["duplex"] = line.split(":", 1)[1].strip().lower()
-
-        # Get hardware info via /sys and lspci
-        sys_path = f"/sys/class/net/{interface_name}/device"
-        
-        if os.path.exists(f"{sys_path}/uevent"):
-            uevent = cls._read_file(f"{sys_path}/uevent")
-            pci_slot = None
-            for line in uevent.split("\n"):
-                if line.startswith("PCI_SLOT_NAME="):
-                    pci_slot = line.split("=", 1)[1]
-                    break
-            
-            if pci_slot:
-                lspci = cls._run_cmd(f"lspci -s {pci_slot} 2>/dev/null")
-                if lspci:
-                    parts = lspci.split(":", 2)
-                    if len(parts) >= 3:
-                        hw_info = parts[2].strip()
-                        info["product"] = hw_info
-                        if " " in hw_info:
-                            info["vendor"] = hw_info.split()[0]
-
-        # WiFi specific info
-        if info["type"] == "wifi":
-            iw_info = cls._run_cmd(f"iw dev {interface_name} info 2>/dev/null")
-            iw_link = cls._run_cmd(f"iw dev {interface_name} link 2>/dev/null")
-            
-            for line in iw_info.split("\n"):
-                line = line.strip()
-                if line.startswith("ssid"):
-                    info["ssid"] = line.split(None, 1)[1] if len(line.split()) > 1 else None
-                elif line.startswith("channel"):
-                    match = re.search(r"\((\d+\.?\d*)\s*MHz", line)
-                    if match:
-                        freq_mhz = float(match.group(1))
-                        info["frequency_ghz"] = round(freq_mhz / 1000, 2)
-            
-            for line in iw_link.split("\n"):
-                line = line.strip()
-                if line.startswith("signal:"):
-                    match = re.search(r"(-?\d+)", line)
-                    if match:
-                        info["signal_dbm"] = int(match.group(1))
-                elif "bitrate" in line.lower():
-                    match = re.search(r"(\d+\.?\d*)\s*MBit", line, re.IGNORECASE)
-                    if match:
-                        info["bitrate"] = float(match.group(1))
-
-        return info
-
-    @classmethod
-    def get_local_ip(cls, interface_name):
-        """Get local IP for interface."""
-        if not interface_name or interface_name == "unknown":
-            return None
-        
+        # IP
         try:
-            out = subprocess.check_output(
-                ["ip", "addr", "show", interface_name], text=True
-            )
-            match = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+)", out)
-            if match:
-                return match.group(1)
+            if interface_name and interface_name != "unknown":
+                out = subprocess.check_output(
+                    ["ip", "addr", "show", interface_name], text=True
+                )
+                ip_match = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+)", out)
+                if ip_match:
+                    info["local_ip"] = ip_match.group(1)
         except:
             pass
-        return None
+
+        return info
 
 
 class NetMon:
     def __init__(self):
         self.config = self.load_config()
         self.interface = self.get_interface()
+        self.sys_info = SystemInfo.get_info(self.interface)
         self.execution_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.current_cycle = 0
 
@@ -361,33 +171,28 @@ class NetMon:
             return "healthy"
 
     def get_diagnosis(self, dl_pct, up_pct):
-        """Generate structured diagnosis."""
+        """Generate diagnosis string based on thresholds."""
         dl_level = self.get_level(dl_pct)
         up_level = self.get_level(up_pct)
-        overall_pct = (dl_pct + up_pct) / 2
-        overall_level = self.get_level(overall_pct)
 
-        return {
-            "download": dl_level,
-            "upload": up_level,
-            "overall": overall_level
-        }
+        # Both healthy
+        if dl_level == "healthy" and up_level == "healthy":
+            return "healthy"
 
-    def collect_meta(self, public_ip, isp):
-        """Collect all system metadata."""
-        return {
-            "hostname": SystemInfo.get_hostname(),
-            "kernel": SystemInfo.get_kernel(),
-            "distro": SystemInfo.get_distro(),
-            "cpu": SystemInfo.get_cpu_info(),
-            "memory": SystemInfo.get_memory_info(),
-            "network": {
-                "interface": SystemInfo.get_interface_info(self.interface),
-                "local_ip": SystemInfo.get_local_ip(self.interface),
-                "public_ip": public_ip,
-                "isp": isp
-            }
-        }
+        # Priority order: critical > degraded > low > ok > healthy
+        priority = ["critical", "degraded", "low", "ok", "healthy"]
+        dl_pri = priority.index(dl_level)
+        up_pri = priority.index(up_level)
+
+        # Both have same issue level
+        if dl_level == up_level:
+            return f"both_{dl_level}"
+
+        # Different levels - report the worse one with direction
+        if dl_pri < up_pri:
+            return f"download_{dl_level}"
+        else:
+            return f"upload_{up_level}"
 
     def create_result(self, output, duration, server_type):
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -425,9 +230,9 @@ class NetMon:
 
         # Diagnosis
         if not valid_json:
-            diagnosis = {"download": "error", "upload": "error", "overall": "error"}
+            diagnosis = "error"
         elif dl_pct <= 1 and up_pct <= 1:
-            diagnosis = {"download": "no_internet", "upload": "no_internet", "overall": "no_internet"}
+            diagnosis = "no_internet"
         else:
             diagnosis = self.get_diagnosis(dl_pct, up_pct)
 
@@ -448,7 +253,7 @@ class NetMon:
             srv_country = srv.get('country')
             srv_host = srv.get('host')
 
-        # Network Metadata from speedtest result
+        # Network Metadata
         pub_ip = None
         isp = None
         if valid_json:
@@ -482,7 +287,18 @@ class NetMon:
                 "country": srv_country,
                 "host": srv_host
             },
-            "meta": self.collect_meta(pub_ip, isp)
+            "network": {
+                "public_ip": pub_ip,
+                "isp": isp
+            },
+            "meta": {
+                "os": self.sys_info.get("os"),
+                "hostname": self.sys_info.get("hostname"),
+                "cpu": self.sys_info.get("cpu"),
+                "memory": self.sys_info.get("memory"),
+                "interface": self.sys_info.get("interface"),
+                "local_ip": self.sys_info.get("local_ip")
+            }
         }
 
     def run_speedtest(self, server_id, server_type):
@@ -530,7 +346,7 @@ class NetMon:
             up = res['thresholds']['upload_pct']
             diag = res['diagnosis']
 
-            logger.info(f"Result [{target}]: D={dl}% U={up}% [D:{diag['download']} U:{diag['upload']} O:{diag['overall']}]")
+            logger.info(f"Result [{target}]: D={dl}% U={up}% [{diag}]")
 
             # Wait between servers (except last)
             if i < len(targets) - 1:
@@ -539,22 +355,31 @@ class NetMon:
 
         return cycle_results
 
-    def get_worst_level(self, cycle_results):
-        """Get the worst overall level from a cycle."""
+    def get_worst_diagnosis(self, cycle_results):
+        """Get the worst diagnosis from a cycle."""
         priority = ["no_internet", "error", "critical", "degraded", "low", "ok", "healthy"]
-        worst = "healthy"
 
+        worst = "healthy"
         for res in cycle_results:
-            level = res['diagnosis']['overall']
+            diag = res['diagnosis']
+            # Extract level from diagnosis (e.g., "download_critical" -> "critical")
+            level = diag.split('_')[-1] if '_' in diag else diag
+
             if level in priority:
-                if priority.index(level) < priority.index(worst):
-                    worst = level
+                if priority.index(level) < priority.index(worst.split('_')[-1] if '_' in worst else worst):
+                    worst = diag
 
         return worst
 
-    def get_retry_interval(self, level):
-        """Get retry interval in minutes based on level."""
+    def should_retry(self, diagnosis):
+        """Check if we should retry based on diagnosis."""
+        level = diagnosis.split('_')[-1] if '_' in diagnosis else diagnosis
+        return level in ["critical", "degraded", "low", "ok", "no_internet", "error"]
+
+    def get_retry_interval(self, diagnosis):
+        """Get retry interval in minutes based on diagnosis."""
         intervals = self.config.get('intervals', {})
+        level = diagnosis.split('_')[-1] if '_' in diagnosis else diagnosis
 
         mapping = {
             "no_internet": intervals.get('no_internet', 10),
@@ -579,9 +404,9 @@ class NetMon:
             logger.info(f"--- Cycle {self.current_cycle}/{max_cycles} ---")
 
             cycle_results = self.run_cycle()
-            worst = self.get_worst_level(cycle_results)
+            worst = self.get_worst_diagnosis(cycle_results)
 
-            logger.info(f"Cycle {self.current_cycle} worst level: {worst}")
+            logger.info(f"Cycle {self.current_cycle} worst diagnosis: {worst}")
 
             # Check if we've reached max cycles
             if self.current_cycle >= max_cycles:

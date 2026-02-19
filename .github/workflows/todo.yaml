@@ -1,14 +1,12 @@
-name: "TODO to Issue"
+name: "TODO to Issue Ultimate"
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
+  workflow_dispatch: # Permite rodar manualmente se precisar
 
 permissions:
-  contents: write
-  issues: write
+  contents: write  # Necessário para commitar o link da issue de volta no código
+  issues: write    # Necessário para criar as issues
 
 jobs:
   todo:
@@ -18,9 +16,33 @@ jobs:
 
       - name: "TODO to Issue"
         uses: alstr/todo-to-issue-action@v5.1.13
+        id: todo
         with:
-          INSERT_ISSUE_URL: "true"
-          CLOSE_ISSUES: "true"
-          AUTO_PULL: "false"
+          # --- Configurações Principais (v5) ---
+          INSERT_ISSUE_URLS: "true"  # Insere o link da issue no seu código (ex: Issue #1)
+          CLOSE_ISSUES: "true"       # Fecha a issue se você apagar o TODO
+          AUTO_P: "true"             # Formata TODOs de múltiplas linhas melhor
+          AUTO_ASSIGN: "true"        # Atribui a issue a você (quem fez o push)
+          
+          # --- Configurações Avançadas ---
+          # Aqui definimos que TODO cria issue normal, e FIXME cria issue com label de bug
+          IDENTIFIERS: '[{"name": "TODO", "labels": []}, {"name": "FIXME", "labels": ["bug", "urgent"]}]'
+          
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Passo Crítico para o INSERT_ISSUE_URLS funcionar ---
+      # A action altera o arquivo localmente, este passo empurra a mudança para o repo.
+      - name: Commit & Push Issue Links
+        if: steps.todo.outputs.changes_made == 'true' || always() # Tenta rodar mesmo se não houver output explícito, para garantir
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          # Só commita se houver mudanças (evita erro de workflow falhando vazio)
+          if [[ `git status --porcelain` ]]; then
+            git commit -m "chore: Add GitHub issue links to TODOs [skip ci]"
+            git push origin HEAD
+          else
+            echo "Nenhuma mudança nos TODOs para commitar."
+          fi

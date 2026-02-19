@@ -1,0 +1,198 @@
+#!/bin/bash
+
+DEST="org.gnome.Shell.Extensions.GSConnect"
+DEVICE_IFACE="org.gnome.Shell.Extensions.GSConnect.Device"
+BASE_PATH="/org/gnome/Shell/Extensions/GSConnect/Device"
+
+# ─── DBus helpers ────────────────────────────────────────────────────────────
+
+_get_device_ids() {
+    gdbus introspect --session \
+        --dest "$DEST" \
+        --object-path /org/gnome/Shell/Extensions/GSConnect/Device \
+        --recurse 2>/dev/null \
+        | grep -oP "${BASE_PATH}/\K[a-f0-9]+"
+}
+
+_get_str_prop() {
+    local id="$1" prop="$2"
+    gdbus call --session \
+        --dest "$DEST" \
+        --object-path "${BASE_PATH}/${id}" \
+        --method org.freedesktop.DBus.Properties.Get \
+        "$DEVICE_IFACE" "$prop" 2>/dev/null \
+        | grep -oP "(?<=<')[^']+"
+}
+
+_get_bool_prop() {
+    local id="$1" prop="$2"
+    gdbus call --session \
+        --dest "$DEST" \
+        --object-path "${BASE_PATH}/${id}" \
+        --method org.freedesktop.DBus.Properties.Get \
+        "$DEVICE_IFACE" "$prop" 2>/dev/null \
+        | grep -oP 'true|false'
+}
+
+_activate() {
+    local id="$1" action="$2"
+    gdbus call --session \
+        --dest "$DEST" \
+        --object-path "${BASE_PATH}/${id}" \
+        --method org.gtk.Actions.Activate \
+        "$action" [] {} 2>&1
+}
+
+# ─── Commands ─────────────────────────────────────────────────────────────────
+
+cmd_list() {
+    local ids
+    ids=$(_get_device_ids)
+
+    if [[ -z "$ids" ]]; then
+        echo "No devices found." >&2
+        exit 1
+    fi
+
+    while IFS= read -r id; do
+        local name connected paired
+        name=$(_get_str_prop       "$id" "Name")
+        connected=$(_get_bool_prop "$id" "Connected")
+        paired=$(_get_bool_prop    "$id" "Paired")
+        echo "$name"
+        echo "  id:        $id"
+        echo "  connected: $connected"
+        echo "  paired:    $paired"
+        echo
+    done <<< "$ids"
+}
+
+# Resolve a full ID from either an exact or partial ID (min 6 chars prefix)
+resolve_id() {
+    local input="$1"
+    local ids
+    ids=$(_get_device_ids)
+
+    if [[ ${#input} -lt 6 ]]; then
+        echo "Error: ID prefix must be at least 6 characters" >&2
+        return 1
+    fi
+
+    local match=""
+    while IFS= read -r id; do
+        if [[ "$id" == "$input"* ]]; then
+            if [[ -n "$match" ]]; then
+                echo "Error: ambiguous ID prefix '$input' matches multiple devices" >&2
+                return 1
+            fi
+            match="$id"
+        fi
+    done <<< "$ids"
+
+    if [[ -z "$match" ]]; then
+        echo "Error: no device with ID matching '$input'" >&2
+        return 1
+    fi
+
+    echo "$match"
+}
+
+resolve_id_by_name() {
+    local target="$1"
+    local ids
+    ids=$(_get_device_ids)
+
+    while IFS= read -r id; do
+        local name
+        name=$(_get_str_prop "$id" "Name")
+        if [[ "$name" == "$target" ]]; then
+            echo "$id"
+            return 0
+        fi
+    done <<< "$ids"
+
+    echo "Error: no device named '$target'" >&2
+    return 1
+}
+
+cmd_action() {
+    local id="$1" action="$2"
+    local result
+    result=$(_activate "$id" "$action")
+    if [[ "$result" == "()" ]]; then
+        local name
+        name=$(_get_str_prop "$id" "Name")
+        echo "OK: $action → $name"
+    else
+        echo "Error: $result" >&2
+        exit 1
+    fi
+}
+
+# ─── Usage ────────────────────────────────────────────────────────────────────
+
+usage() {
+    cat <<EOF
+Usage: gclip [--name <n> | --id <id>] [--push | --pull]
+       gclip --list
+
+Options:
+  --list           List paired devices
+  --name <n>       Select device by exact name
+  --id   <id>      Select device by full or partial ID (min 6 chars)
+  --push           Push clipboard from PC → device
+  --pull           Pull clipboard from device → PC
+  -h, --help       Show this help
+
+Examples:
+  gclip --list
+  gclip --name lenovo --push
+  gclip --id bf088e --pull
+  gclip --id bf088ef0c66841e7bfa492fcc7c3c995 --push
+EOF
+}
+
+# ─── Arg parsing ──────────────────────────────────────────────────────────────
+
+[[ $# -eq 0 ]] && { usage; exit 0; }
+
+DEVICE_NAME=""
+DEVICE_ID=""
+ACTION=""
+DO_LIST=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --list)    DO_LIST=true ;;
+        --name)    shift; DEVICE_NAME="$1" ;;
+        --id)      shift; DEVICE_ID="$1" ;;
+        --push)    ACTION="clipboardPush" ;;
+        --pull)    ACTION="clipboardPull" ;;
+        -h|--help) usage; exit 0 ;;
+        *)         echo "Unknown option: $1" >&2; usage; exit 1 ;;
+    esac
+    shift
+done
+
+# ─── Dispatch ─────────────────────────────────────────────────────────────────
+
+if $DO_LIST; then
+    cmd_list
+    exit 0
+fi
+
+if [[ -z "$ACTION" ]]; then
+    echo "Error: specify --push or --pull" >&2
+    usage; exit 1
+fi
+
+if [[ -n "$DEVICE_NAME" ]]; then
+    DEVICE_ID=$(resolve_id_by_name "$DEVICE_NAME") || exit 1
+elif [[ -n "$DEVICE_ID" ]]; then
+    DEVICE_ID=$(resolve_id "$DEVICE_ID") || exit 1
+else
+    echo "Error: specify --name or --id" >&2
+    usage; exit 1
+fi
+
+cmd_action "$DEVICE_ID" "$ACTION"
