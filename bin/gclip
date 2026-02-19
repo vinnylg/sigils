@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# gclip — GSConnect clipboard manager
+# Push/pull clipboard between PC and paired devices via DBus
+
 DEST="org.gnome.Shell.Extensions.GSConnect"
 DEVICE_IFACE="org.gnome.Shell.Extensions.GSConnect.Device"
 BASE_PATH="/org/gnome/Shell/Extensions/GSConnect/Device"
@@ -9,7 +12,7 @@ BASE_PATH="/org/gnome/Shell/Extensions/GSConnect/Device"
 _get_device_ids() {
     gdbus introspect --session \
         --dest "$DEST" \
-        --object-path /org/gnome/Shell/Extensions/GSConnect/Device \
+        --object-path "$BASE_PATH" \
         --recurse 2>/dev/null \
         | grep -oP "${BASE_PATH}/\K[a-f0-9]+"
 }
@@ -43,31 +46,8 @@ _activate() {
         "$action" [] {} 2>&1
 }
 
-# ─── Commands ─────────────────────────────────────────────────────────────────
+# ─── Device resolution ───────────────────────────────────────────────────────
 
-cmd_list() {
-    local ids
-    ids=$(_get_device_ids)
-
-    if [[ -z "$ids" ]]; then
-        echo "No devices found." >&2
-        exit 1
-    fi
-
-    while IFS= read -r id; do
-        local name connected paired
-        name=$(_get_str_prop       "$id" "Name")
-        connected=$(_get_bool_prop "$id" "Connected")
-        paired=$(_get_bool_prop    "$id" "Paired")
-        echo "$name"
-        echo "  id:        $id"
-        echo "  connected: $connected"
-        echo "  paired:    $paired"
-        echo
-    done <<< "$ids"
-}
-
-# Resolve a full ID from either an exact or partial ID (min 6 chars prefix)
 resolve_id() {
     local input="$1"
     local ids
@@ -115,77 +95,154 @@ resolve_id_by_name() {
     return 1
 }
 
-cmd_action() {
-    local id="$1" action="$2"
+# ─── Commands ────────────────────────────────────────────────────────────────
+
+cmd_list() {
+    local ids
+    ids=$(_get_device_ids)
+
+    if [[ -z "$ids" ]]; then
+        echo "No devices found." >&2
+        exit 1
+    fi
+
+    while IFS= read -r id; do
+        local name connected paired
+        name=$(_get_str_prop       "$id" "Name")
+        connected=$(_get_bool_prop "$id" "Connected")
+        paired=$(_get_bool_prop    "$id" "Paired")
+        echo "$name"
+        echo "  id:        $id"
+        echo "  connected: $connected"
+        echo "  paired:    $paired"
+        echo
+    done <<< "$ids"
+}
+
+cmd_push() {
+    local device_id="$1"
+
+    if $USE_TXT; then
+        if [[ -n "$TXT_VALUE" ]]; then
+            echo -n "$TXT_VALUE" | xclip -selection clipboard -i
+        else
+            xclip -selection clipboard -i
+        fi
+    fi
+
     local result
-    result=$(_activate "$id" "$action")
+    result=$(_activate "$device_id" "clipboardPush")
     if [[ "$result" == "()" ]]; then
         local name
-        name=$(_get_str_prop "$id" "Name")
-        echo "OK: $action → $name"
+        name=$(_get_str_prop "$device_id" "Name")
+        echo "push → $name" >&2
     else
         echo "Error: $result" >&2
         exit 1
     fi
 }
 
-# ─── Usage ────────────────────────────────────────────────────────────────────
+cmd_pull() {
+    local device_id="$1"
+
+    local result
+    result=$(_activate "$device_id" "clipboardPull")
+    if [[ "$result" == "()" ]]; then
+        local name
+        name=$(_get_str_prop "$device_id" "Name")
+        if $USE_TXT; then
+            sleep 0.3
+            xclip -selection clipboard -o
+        else
+            echo "pull ← $name" >&2
+        fi
+    else
+        echo "Error: $result" >&2
+        exit 1
+    fi
+}
+
+# ─── Usage ───────────────────────────────────────────────────────────────────
 
 usage() {
     cat <<EOF
-Usage: gclip [--name <n> | --id <id>] [--push | --pull]
-       gclip --list
+Usage: gclip <command> [options]
+
+Commands:
+  list                 List paired devices
+  push [opts]          Push clipboard PC → device
+  pull [opts]          Pull clipboard device → PC
 
 Options:
-  --list           List paired devices
-  --name <n>       Select device by exact name
-  --id   <id>      Select device by full or partial ID (min 6 chars)
-  --push           Push clipboard from PC → device
-  --pull           Pull clipboard from device → PC
-  -h, --help       Show this help
+  --name <name>        Select device by exact name
+  --id   <id>          Select device by full or partial ID (min 6 chars)
+  --txt  [text]        Push: send text instead of clipboard (no arg = stdin)
+                       Pull: print to stdout instead of clipboard
+  -h, --help           Show this help
 
 Examples:
-  gclip --list
-  gclip --name lenovo --push
-  gclip --id bf088e --pull
-  gclip --id bf088ef0c66841e7bfa492fcc7c3c995 --push
+  gclip list
+  gclip push --name lenovo
+  gclip push --name lenovo --txt "hello world"
+  echo "hello" | gclip push --name lenovo --txt
+  gclip pull --id bf088e
+  gclip pull --name lenovo --txt
 EOF
 }
 
-# ─── Arg parsing ──────────────────────────────────────────────────────────────
+# ─── Arg parsing ─────────────────────────────────────────────────────────────
 
 [[ $# -eq 0 ]] && { usage; exit 0; }
 
+COMMAND=""
 DEVICE_NAME=""
 DEVICE_ID=""
-ACTION=""
-DO_LIST=false
+USE_TXT=false
+TXT_VALUE=""
+
+# First positional arg is the command
+case "$1" in
+    list|push|pull) COMMAND="$1"; shift ;;
+    -h|--help)      usage; exit 0 ;;
+    *)              echo "Unknown command: $1" >&2; usage; exit 1 ;;
+esac
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --list)    DO_LIST=true ;;
-        --name)    shift; DEVICE_NAME="$1" ;;
-        --id)      shift; DEVICE_ID="$1" ;;
-        --push)    ACTION="clipboardPush" ;;
-        --pull)    ACTION="clipboardPull" ;;
-        -h|--help) usage; exit 0 ;;
-        *)         echo "Unknown option: $1" >&2; usage; exit 1 ;;
+        --name)
+            shift
+            DEVICE_NAME="$1"
+            ;;
+        --id)
+            shift
+            DEVICE_ID="$1"
+            ;;
+        --txt)
+            USE_TXT=true
+            if [[ $# -gt 1 && ! "$2" =~ ^- ]]; then
+                shift
+                TXT_VALUE="$1"
+            fi
+            ;;
+        -h|--help)
+            usage; exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage; exit 1
+            ;;
     esac
     shift
 done
 
-# ─── Dispatch ─────────────────────────────────────────────────────────────────
+# ─── Dispatch ────────────────────────────────────────────────────────────────
 
-if $DO_LIST; then
+if [[ "$COMMAND" == "list" ]]; then
     cmd_list
     exit 0
 fi
 
-if [[ -z "$ACTION" ]]; then
-    echo "Error: specify --push or --pull" >&2
-    usage; exit 1
-fi
-
+# push and pull require a device
 if [[ -n "$DEVICE_NAME" ]]; then
     DEVICE_ID=$(resolve_id_by_name "$DEVICE_NAME") || exit 1
 elif [[ -n "$DEVICE_ID" ]]; then
@@ -195,4 +252,7 @@ else
     usage; exit 1
 fi
 
-cmd_action "$DEVICE_ID" "$ACTION"
+case "$COMMAND" in
+    push) cmd_push "$DEVICE_ID" ;;
+    pull) cmd_pull "$DEVICE_ID" ;;
+esac
