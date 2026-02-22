@@ -9,6 +9,7 @@
 # ============================
 
 # TODO(test-safety): Add GDM/display-manager compatibility check
+# Issue URL: https://github.com/vinnylg/sigils/issues/17
 # See version 2.2.0 for full details on symptoms, root cause, and proposed solutions.
 # Temporary workaround: Limit stress test to STRESS_MAX displays, always force_cleanup().
 
