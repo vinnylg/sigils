@@ -10,7 +10,9 @@ _totp() {
     cword=$COMP_CWORD
 
     _totp_account_names() {
-        local keys="${XDG_CONFIG_HOME:-$HOME/.config}/sigils/totp/keys"
+        local script_dir keys
+        script_dir="$(cd "$(dirname "$(readlink -f "$(command -v totp)")")/.." 2>/dev/null && pwd)"
+        keys="${script_dir}/data/keys"
         [[ -f "$keys" ]] && awk -F'\t' 'NF >= 2 {print $1}' "$keys"
     }
 
@@ -49,7 +51,7 @@ _totp() {
 
     case "$command" in
         add)
-            COMPREPLY=( $(compgen -W "--name --secret --uri --algo --digits --period --help" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--name --secret --uri --clip --algo --digits --period --help" -- "$cur") )
             ;;
         get)
             COMPREPLY=( $(compgen -W "--name --clip --help" -- "$cur") )

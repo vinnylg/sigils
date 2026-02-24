@@ -5,8 +5,9 @@
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
-TOTP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/sigils/totp"
-TOTP_KEYS_FILE="${TOTP_CONFIG_DIR}/keys"
+SPELL_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+TOTP_DATA_DIR="${SPELL_DIR}/data"
+TOTP_KEYS_FILE="${TOTP_DATA_DIR}/keys"
 DEFAULT_ALGO="sha1"
 DEFAULT_DIGITS=6
 DEFAULT_PERIOD=30
@@ -26,21 +27,28 @@ _check_dependencies() {
 }
 
 _ensure_storage() {
-    if [[ ! -d "$TOTP_CONFIG_DIR" ]]; then
-        mkdir -p "$TOTP_CONFIG_DIR"
-        chmod 700 "$TOTP_CONFIG_DIR"
-    fi
-    if [[ ! -f "$TOTP_KEYS_FILE" ]]; then
-        touch "$TOTP_KEYS_FILE"
-        chmod 600 "$TOTP_KEYS_FILE"
+    if [[ ! -d "$TOTP_DATA_DIR" ]]; then
+        mkdir -p "$TOTP_DATA_DIR"
     fi
 
-    # Warn if permissions are too open
-    local perms
-    perms=$(stat -c '%a' "$TOTP_KEYS_FILE" 2>/dev/null)
-    if [[ "$perms" != "600" ]]; then
-        echo "Warning: $TOTP_KEYS_FILE has permissions $perms (expected 600)" >&2
-        echo "  Fix with: chmod 600 $TOTP_KEYS_FILE" >&2
+    # Enforce directory permissions
+    local dir_perms
+    dir_perms=$(stat -c '%a' "$TOTP_DATA_DIR" 2>/dev/null)
+    if [[ "$dir_perms" != "700" ]]; then
+        chmod 700 "$TOTP_DATA_DIR"
+        echo "Fixed: $TOTP_DATA_DIR permissions → 700" >&2
+    fi
+
+    if [[ ! -f "$TOTP_KEYS_FILE" ]]; then
+        (umask 077 && touch "$TOTP_KEYS_FILE")
+    fi
+
+    # Enforce keys file permissions
+    local file_perms
+    file_perms=$(stat -c '%a' "$TOTP_KEYS_FILE" 2>/dev/null)
+    if [[ "$file_perms" != "600" ]]; then
+        chmod 600 "$TOTP_KEYS_FILE"
+        echo "Fixed: $TOTP_KEYS_FILE permissions → 600" >&2
     fi
 }
 
@@ -157,6 +165,21 @@ _clip_copy() {
     fi
 }
 
+_clip_read() {
+    if command -v xclip &>/dev/null; then
+        xclip -selection clipboard -o
+    elif command -v wl-paste &>/dev/null; then
+        wl-paste
+    elif command -v xsel &>/dev/null; then
+        xsel --clipboard --output
+    elif command -v pbpaste &>/dev/null; then
+        pbpaste
+    else
+        echo "Error: no clipboard tool found (xclip, wl-paste, xsel, pbpaste)" >&2
+        return 1
+    fi
+}
+
 # ─── Commands ────────────────────────────────────────────────────────────────
 
 cmd_add() {
@@ -170,13 +193,24 @@ cmd_add() {
         IFS=$'\t' read -r name secret algo digits period <<< "$parsed"
     fi
 
+    # Read secret from clipboard if --clip and no --secret/--uri
+    if $USE_CLIP && [[ -z "$secret" ]] && [[ -z "$ADD_URI" ]]; then
+        secret=$(_clip_read) || return 1
+        # Trim whitespace/newlines from clipboard content
+        secret="${secret%"${secret##*[![:space:]]}"}"
+        secret="${secret#"${secret%%[![:space:]]*}"}"
+        if [[ -n "$secret" ]]; then
+            echo "Read secret from clipboard" >&2
+        fi
+    fi
+
     if [[ -z "$name" ]]; then
         echo "Error: specify --name <label>" >&2
         return 1
     fi
 
     if [[ -z "$secret" ]]; then
-        echo "Error: specify --secret <base32> or --uri <otpauth://...>" >&2
+        echo "Error: specify --secret <base32>, --uri <otpauth://...>, or --clip" >&2
         return 1
     fi
 
@@ -339,6 +373,7 @@ Add options:
   --name   <label>       Account label (e.g. "github", "AWS:user@example.com")
   --secret <base32>      Base32-encoded secret key
   --uri    <otpauth://...>  Import from otpauth URI (overrides --name/--secret)
+  --clip                 Read secret from clipboard (add only)
   --algo   <algorithm>   Hash algorithm: sha1, sha256, sha512 (default: sha1)
   --digits <n>           Code length: 6, 7, or 8 (default: 6)
   --period <seconds>     Time step in seconds (default: 30)
@@ -352,6 +387,7 @@ General:
 
 Examples:
   totp add --name github --secret JBSWY3DPEHPK3PXP
+  totp add --name github --clip
   totp add --uri "otpauth://totp/GitHub:user?secret=JBSWY3DPEHPK3PXP&issuer=GitHub"
   totp list
   totp get
