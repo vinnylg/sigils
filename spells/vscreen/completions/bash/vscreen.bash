@@ -38,11 +38,7 @@ _vscreen() {
   }
 
   _vscreen_resolution_names() {
-<<<<<<< Updated upstream
-    local config="${SIGILS:-$HOME/.local/sigils}/config/vscreen"
-=======
     local config="${SIGILS:-$HOME/.local/sigils}/spells/vscreen/config/resolutions"
->>>>>>> Stashed changes
     if [[ -f "$config" ]]; then
       awk '!/^[[:space:]]*#/ && NF {print $1}' "$config"
     else
