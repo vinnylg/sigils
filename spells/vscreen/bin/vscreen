@@ -18,8 +18,8 @@ ORIENTATION_SET=false
 POSITION_SET=false
 
 SIGILS="${SIGILS:-$HOME/.local/sigils}"
-CONFIG_DIR="$SIGILS/config"
-CONFIG_FILE="$CONFIG_DIR/vscreen"
+CONFIG_DIR="$SIGILS/spells/vscreen/config"
+CONFIG_FILE="$CONFIG_DIR/resolutions"
 
 # ============================
 # Default Resolutions
