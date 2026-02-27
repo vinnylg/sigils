@@ -175,8 +175,10 @@ cmd_pin_onboard() {
         conn=$(_get_nm_connection "$eth_iface")
         if [[ -n "$conn" ]]; then
             echo "Pinning $eth_iface ($conn) → metric $ONBOARD_ETH_METRIC"
-            nmcli connection modify "$conn" ipv4.route-metric "$ONBOARD_ETH_METRIC"
-            nmcli connection up "$conn" >/dev/null 2>&1
+            nmcli connection modify "$conn" \
+                ipv4.route-metric "$ONBOARD_ETH_METRIC" \
+                ipv6.route-metric "$ONBOARD_ETH_METRIC"
+            nmcli device reapply "$eth_iface" >/dev/null 2>&1
             ((changed++))
         fi
     else
@@ -188,8 +190,10 @@ cmd_pin_onboard() {
         conn=$(_get_nm_connection "$wifi_iface")
         if [[ -n "$conn" ]]; then
             echo "Pinning $wifi_iface ($conn) → metric $ONBOARD_WIFI_METRIC"
-            nmcli connection modify "$conn" ipv4.route-metric "$ONBOARD_WIFI_METRIC"
-            nmcli connection up "$conn" >/dev/null 2>&1
+            nmcli connection modify "$conn" \
+                ipv4.route-metric "$ONBOARD_WIFI_METRIC" \
+                ipv6.route-metric "$ONBOARD_WIFI_METRIC"
+            nmcli device reapply "$wifi_iface" >/dev/null 2>&1
             ((changed++))
         fi
     else
@@ -220,8 +224,10 @@ cmd_metric() {
             return 1
         fi
         echo "Setting $iface ($conn) → metric $METRIC_VALUE (permanent)"
-        nmcli connection modify "$conn" ipv4.route-metric "$METRIC_VALUE"
-        nmcli connection up "$conn" >/dev/null 2>&1
+        nmcli connection modify "$conn" \
+            ipv4.route-metric "$METRIC_VALUE" \
+            ipv6.route-metric "$METRIC_VALUE"
+        nmcli device reapply "$iface" >/dev/null 2>&1
     else
         echo "Setting $iface → metric $METRIC_VALUE (temporary)"
         sudo ifmetric "$iface" "$METRIC_VALUE"
